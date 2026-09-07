@@ -54,64 +54,118 @@
       // hard-caps the neighbor-to-neighbor radius ratio for curved
       // families, which is what actually prevents the self-intersection
       // artifact regardless of how high this goes.
-      radiusJitter: 0.9,
+      radiusJitter: 0.65,
       curved: true,
     },
   };
 
-  /** True if segments p1->p2 and p3->p4 cross (sharing an endpoint doesn't count as crossing). */
-  function segmentsIntersect(p1, p2, p3, p4) {
-    const ccw = (a, b, c) => (c.y - a.y) * (b.x - a.x) > (b.y - a.y) * (c.x - a.x);
-    return ccw(p1, p3, p4) !== ccw(p2, p3, p4) && ccw(p1, p2, p3) !== ccw(p1, p2, p4);
-  }
+  // --- self-intersection detection (curved shapes only) --------------------
+  // A hand-rolled reimplementation of p5's Catmull-Rom curve math (sampling
+  // the curve, checking sampled segments for crossings) turned out to
+  // subtly diverge from what p5 actually renders in a way that was hard to
+  // pin down -- it kept missing real self-intersections. Rather than keep
+  // guessing at p5's exact internals, this renders the candidate outline at
+  // a small fixed scale with the literal same curveVertex/endShape(CLOSE)
+  // call sequence drawCurvedClosed (canvasRenderer.js) uses, then flood-
+  // fills background pixels reachable from the canvas border; any
+  // background pixel NOT reached is enclosed by the outline -- a self-
+  // intersection hole. Checking the literal thing that gets drawn is more
+  // reliable than any approximation of it.
+  // Large enough that a real self-intersection hole (which can be a very
+  // thin sliver) reliably survives anti-aliasing and shows up as more than
+  // a pixel or two -- empirically, checking at only ~100px missed holes
+  // that were clearly visible (hundreds of pixels) once actually rendered
+  // at typical node/canvas size.
+  const HOLE_CHECK_SIZE = 600;
+  let holeCheckP5 = null;
+  (function initHoleCheckP5() {
+    if (typeof window === 'undefined' || typeof window.p5 !== 'function') return;
+    const host = document.createElement('div');
+    host.style.position = 'fixed';
+    host.style.left = '-9999px';
+    host.style.top = '-9999px';
+    document.body.appendChild(host);
+    new window.p5((p) => {
+      p.setup = () => {
+        p.pixelDensity(1);
+        p.createCanvas(HOLE_CHECK_SIZE, HOLE_CHECK_SIZE).parent(host);
+        p.noLoop();
+        p.noStroke();
+        holeCheckP5 = p;
+      };
+    });
+  })();
 
-  /** Point at parameter t in [0,1] between p1 and p2 on a uniform Catmull-Rom spline through p0,p1,p2,p3. */
-  function catmullRomPoint(p0, p1, p2, p3, t) {
-    const t2 = t * t;
-    const t3 = t2 * t;
-    const c = (a, b, c2, d) => 0.5 * (2 * b + (-a + c2) * t + (2 * a - 5 * b + 4 * c2 - d) * t2 + (-a + 3 * b - 3 * c2 + d) * t3);
-    return { x: c(p0.x, p1.x, p2.x, p3.x), y: c(p0.y, p1.y, p2.y, p3.y) };
-  }
-
-  /** Samples the closed Catmull-Rom curve canvasRenderer.js actually draws through `points`. */
-  function sampleClosedCurve(points, samplesPerSegment) {
-    const n = points.length;
-    const out = [];
-    for (let i = 0; i < n; i++) {
-      const p0 = points[(i - 1 + n) % n];
-      const p1 = points[i];
-      const p2 = points[(i + 1) % n];
-      const p3 = points[(i + 2) % n];
-      for (let s = 0; s < samplesPerSegment; s++) {
-        out.push(catmullRomPoint(p0, p1, p2, p3, s / samplesPerSegment));
+  /** Background (near-black) pixels NOT reachable from the canvas border without crossing fill -- i.e. enclosed holes. */
+  function countEnclosedPixels(p) {
+    const canvas = p.canvas;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    const img = ctx.getImageData(0, 0, w, h).data;
+    const isBg = (i) => img[i * 4] < 20 && img[i * 4 + 1] < 20 && img[i * 4 + 2] < 20;
+    const n = w * h;
+    const reached = new Uint8Array(n);
+    const stack = [];
+    const seed = (i) => {
+      if (isBg(i) && !reached[i]) {
+        reached[i] = 1;
+        stack.push(i);
       }
+    };
+    for (let x = 0; x < w; x++) {
+      seed(x);
+      seed((h - 1) * w + x);
     }
-    return out;
+    for (let y = 0; y < h; y++) {
+      seed(y * w);
+      seed(y * w + w - 1);
+    }
+    while (stack.length) {
+      const i = stack.pop();
+      const x = i % w;
+      const y = (i / w) | 0;
+      if (x > 0) seed(i - 1);
+      if (x < w - 1) seed(i + 1);
+      if (y > 0) seed(i - w);
+      if (y < h - 1) seed(i + w);
+    }
+    let count = 0;
+    for (let i = 0; i < n; i++) {
+      if (isBg(i) && !reached[i]) count++;
+    }
+    return count;
   }
 
   /**
-   * True if the closed curve through `points` crosses itself anywhere. Tests
-   * the same Catmull-Rom curve canvasRenderer.js renders (sampled finely),
-   * not just the straight-line control polygon -- the curve overshoots past
-   * its control points, so it can loop back on itself even when the control
-   * polygon itself doesn't cross.
+   * True if the closed curve through `points` has a self-intersection hole.
+   * If the checker isn't ready yet (e.g. the very first diagram generated
+   * right on page load, before its own p5 instance finishes an async
+   * setup), this can't validate -- it returns false (accept the candidate
+   * as-is) rather than block generation; every later call is validated.
    */
-  function curveSelfIntersects(points) {
-    const samplesPerSegment = 8;
-    const curve = sampleClosedCurve(points, samplesPerSegment);
-    const n = curve.length;
-    // Segments within this many samples of each other along the curve are
-    // part of the same smooth bend and can sit close together without it
-    // being a real crossing -- only flag genuinely distant segments.
-    const skipWindow = samplesPerSegment + 2;
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 2; j < n; j++) {
-        const gap = Math.min(j - i, n - (j - i));
-        if (gap <= skipWindow) continue;
-        if (segmentsIntersect(curve[i], curve[(i + 1) % n], curve[j], curve[(j + 1) % n])) return true;
-      }
-    }
-    return false;
+  function curveHasHole(points) {
+    if (!holeCheckP5) return false;
+    const p = holeCheckP5;
+    const n = points.length;
+    let maxR = 1;
+    points.forEach((pt) => {
+      maxR = Math.max(maxR, Math.hypot(pt.x, pt.y));
+    });
+    const scale = (HOLE_CHECK_SIZE * 0.4) / maxR;
+    p.background(0);
+    p.push();
+    p.translate(HOLE_CHECK_SIZE / 2, HOLE_CHECK_SIZE / 2);
+    p.scale(scale);
+    p.fill(255);
+    p.beginShape();
+    p.curveVertex(points[n - 1].x, points[n - 1].y);
+    points.forEach((pt) => p.curveVertex(pt.x, pt.y));
+    p.curveVertex(points[0].x, points[0].y);
+    p.curveVertex(points[1].x, points[1].y);
+    p.endShape(p.CLOSE);
+    p.pop();
+    return countEnclosedPixels(p) > 3; // a pixel or two of anti-aliasing noise is not a real hole
   }
 
   /** Nudges every point toward the average of its two neighbors -- a generic, angle-agnostic smoothing pass. */
@@ -166,11 +220,38 @@
     // until it's clean, which is guaranteed to terminate (relaxing enough
     // times converges toward a convex, non-self-intersecting shape).
     let candidate = sample();
-    for (let attempt = 1; attempt < 12 && curveSelfIntersects(candidate); attempt++) {
+    for (let attempt = 1; attempt < 8 && curveHasHole(candidate); attempt++) {
       candidate = sample();
     }
-    for (let relax = 0; relax < 8 && curveSelfIntersects(candidate); relax++) {
+    for (let relax = 0; relax < 5 && curveHasHole(candidate); relax++) {
       candidate = relaxPoints(candidate);
+    }
+    for (let fallback = 0; fallback < 3 && curveHasHole(candidate); fallback++) {
+      // Last resort (very rare): every re-roll and relax pass still crossed
+      // itself. Fall back to a mild, safely-in-range jitter (both angle and
+      // radius, regardless of how extreme the requested setting is) plus a
+      // couple of relax passes for extra margin, for just this one shape,
+      // rather than ship something visibly broken -- still irregular/
+      // asymmetric, just not as extreme as the requested setting.
+      candidate = [];
+      const mildAngleJitter = 0.08 * step;
+      for (let i = 0; i < n; i++) {
+        const angle = i * step + rng.range(-mildAngleJitter, mildAngleJitter);
+        const radiusScale = 1 + rng.range(-0.12, 0.12);
+        candidate.push({ x: Math.cos(angle) * rx * radiusScale, y: Math.sin(angle) * ry * radiusScale });
+      }
+      candidate = relaxPoints(relaxPoints(candidate));
+    }
+    if (curveHasHole(candidate)) {
+      // Truly last resort: a perfectly regular n-gon inscribed in the
+      // ellipse. Convex and evenly spaced, so it geometrically cannot
+      // self-intersect -- this sacrifices "never regular" only for this
+      // one shape in this one vanishingly rare case, rather than risk
+      // shipping a visible hole no matter how many attempts came before.
+      candidate = [];
+      for (let i = 0; i < n; i++) {
+        candidate.push({ x: Math.cos(i * step) * rx, y: Math.sin(i * step) * ry });
+      }
     }
     return candidate;
   }

@@ -7,13 +7,13 @@
 - [x] Settable download path for exports.
 - [x] Pan & zoom on the canvas view.
 - [x] Edit nodes/edges by editing the values directly in the table panel.
-- [ ] Edges should be able to connect to other edges, not just nodes.
 - [x] Arrow-line problem.
 - [x] Toggleable node names.
 - [x] Edges should be able to go from and to the same node.
 - [x] Rename the control panel's "Relationships (edges)" section to just "Edges".
 - [x] Fix shape clipping/inversion.
+- [x] Add a couple of screenshots to the README.
+- [ ] Edges should be able to connect to other edges, not just nodes.
 - [ ] Enable recursion -- nodes & edges inside a node -- and parameterize how often this occurs.
 - [ ] Library view of saved diagrams, shown in a grid, resumable for viewing or editing.
 - [ ] Generate a diagram from an input image -- guess at nodes, edges, sizes, shapes, and colors from it, e.g. by sampling random regions of the image for values.
-- [x] Add a couple of screenshots to the README.
