@@ -45,6 +45,11 @@
  *       controlPoint,              // optional {x,y} -- when present, overrides `style`
  *                                  // and bends the trunk through this exact point (set
  *                                  // by dragging the edge in the canvas view)
+ *       loopAngle, loopSpread, loopSize,  // present only when source === target (a
+ *                                  // self-loop): the loop's outward direction, the
+ *                                  // angle between its two attachment points on the
+ *                                  // node's boundary, and how far it bulges out as a
+ *                                  // multiple of the node's radius
  *       label
  *     }, ...
  *   ]
@@ -85,6 +90,7 @@
       sizeTiers: true,
       largeTierProbability: 0.4,
       rotationRandom: true,
+      showNodeLabels: true,
 
       layout: 'random',
       padding: 40,
@@ -119,6 +125,7 @@
       edgeEndOffsetJitter: 6,
       edgeBranchProbability: 0.12,
       floatingEdgeCount: 3,
+      selfLoopProbability: 0.08,
 
       useInputData: false,
     };

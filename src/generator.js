@@ -157,7 +157,18 @@
   }
 
   function makeEdge(id, source, target, params, rng) {
-    return { id, source, target, label: null, ...edgeStyleValues(params, rng) };
+    const edge = { id, source, target, label: null, ...edgeStyleValues(params, rng) };
+    if (typeof source === 'string' && source === target) {
+      // A self-loop: canvasRenderer draws a loop bulging out from the node
+      // rather than the normal source->target trunk (which would be
+      // degenerate here, both ends resolving to the same point). These
+      // three values are all it needs, decided here so the renderer stays
+      // pure/data-driven rather than rolling its own hidden randomness.
+      edge.loopAngle = rng.range(0, Math.PI * 2); // outward direction the loop bulges
+      edge.loopSpread = rng.range(0.35, 0.7); // radians between the loop's two attachment points
+      edge.loopSize = rng.range(0.8, 1.6); // how far it bulges out, as a multiple of the node's radius
+    }
+    return edge;
   }
 
   /**
@@ -203,6 +214,12 @@
           }
         }
       }
+
+      // Self-loops: a node connecting to itself. Not run through maybeAddBranch --
+      // a converge/split branch on top of a loop doesn't make sense.
+      nodes.forEach((node) => {
+        if (rng.bool(params.selfLoopProbability)) edges.push(makeEdge(`s${n++}`, node.id, node.id, params, rng));
+      });
     }
 
     // Decorative edges with both ends floating free in space, attached to no
@@ -297,7 +314,7 @@
       const sourceId = dn.id !== undefined ? String(dn.id) : null;
       (dn.connections || []).forEach((targetRaw) => {
         const targetId = String(targetRaw);
-        if (sourceId === null || sourceId === targetId) return;
+        if (sourceId === null) return;
         const key = [sourceId, targetId].sort().join('::');
         if (seen.has(key)) return;
         seen.add(key);

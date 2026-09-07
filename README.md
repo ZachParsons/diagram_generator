@@ -6,6 +6,9 @@ generator's output is a plain JSON object that can be fed into a
 different visualizer, and (eventually) real input data can be fed into
 the generator in place of pure randomness.
 
+![Canvas view with the parameter panel](docs/screenshots/canvas.jpg)
+![Table drawer expanded over the canvas](docs/screenshots/table-drawer.png)
+
 No build step: p5.js and Tweakpane load from CDNs, everything else is
 plain scripts. Just open `index.html` in a browser.
 
@@ -160,6 +163,15 @@ the node), or a literal `{x, y}` point that isn't attached to anything --
 this is what makes an edge that doesn't start or end at a node. `sourceGap`/
 `targetGap` are randomized per edge by default so lines don't all crisply
 hug the exact same offset from every node.
+
+When `source === target`, the edge is a self-loop: instead of the normal
+trunk (degenerate when both ends are the same point), `canvasRenderer.js`
+draws a small loop bulging out from the node, using `loopAngle`/
+`loopSpread`/`loopSize` -- the outward direction, the angle between the
+loop's two attachment points on the node's own boundary, and how far it
+bulges out. `selfLoopProbability` controls how often random generation adds
+one per node; `generateFromData()` includes a self-loop whenever a node's
+own id appears in its `connections`.
 
 `extraSources`/`extraTargets` add thin branch lines that converge into the
 trunk's start or fan out from its end -- one edge can represent several

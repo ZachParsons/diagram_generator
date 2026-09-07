@@ -131,7 +131,7 @@
       p.push();
       p.translate(view.offsetX, view.offsetY);
       p.scale(view.scale);
-      DG.renderDiagramP5(p, currentDiagram);
+      DG.renderDiagramP5(p, currentDiagram, { showLabels: params.showNodeLabels });
       p.pop();
     };
 
@@ -250,9 +250,19 @@
   });
 
   // --- controls panel ------------------------------------------------------
+  // onDisplayChange is for controls that only affect how the *current*
+  // diagram is drawn (e.g. label visibility) -- redraw only, since routing
+  // them through regenerate() would discard any manual node/edge dragging
+  // even though, being unseeded, it'd reproduce the identical diagram.
+  function redrawOnly() {
+    if (p5Instance) p5Instance.redraw();
+    saveParams();
+  }
+
   DG.setupControls(params, {
     onChange: regenerate,
     onRegenerate: regenerate,
+    onDisplayChange: redrawOnly,
     onExportJSON: exportDiagramJSON,
     onExportPNG: exportPNG,
     onExportBoth: exportBoth,

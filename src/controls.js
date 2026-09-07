@@ -8,6 +8,9 @@
     const pane = new Tweakpane.Pane({ title: 'Diagram Parameters', container: document.getElementById('pane-container') });
 
     const onChange = () => callbacks.onChange();
+    // For controls that only affect how the current diagram is drawn (e.g.
+    // label visibility) -- a redraw, not a full regenerate.
+    const onDisplayChange = () => callbacks.onDisplayChange();
 
     // A new random seed, keeping every other control exactly as set --
     // this is what makes "give me a new diagram with the same values" work.
@@ -40,6 +43,7 @@
     nodes.addInput(params, 'sizeTiers', { label: 'Size tiers (nodes & edges)' }).on('change', onChange);
     nodes.addInput(params, 'largeTierProbability', { label: 'Large tier chance', min: 0, max: 1, step: 0.01 }).on('change', onChange);
     nodes.addInput(params, 'rotationRandom', { label: 'Random rotation' }).on('change', onChange);
+    nodes.addInput(params, 'showNodeLabels', { label: 'Show labels' }).on('change', onDisplayChange);
 
     // --- Layout ---------------------------------------------------------
     const layout = pane.addFolder({ title: 'Layout' });
@@ -59,7 +63,7 @@
     style.addInput(params, 'fillOpacityMax', { label: 'Fill opacity max', min: 0, max: 1, step: 0.01 }).on('change', onChange);
 
     // --- Edges / relationships ------------------------------------------
-    const edges = pane.addFolder({ title: 'Relationships (edges)' });
+    const edges = pane.addFolder({ title: 'Edges' });
     edges
       .addInput(params, 'edgeMode', {
         label: 'Mode',
@@ -103,6 +107,9 @@
       .on('change', onChange);
     edges
       .addInput(params, 'floatingEdgeCount', { label: 'Floating edges', min: 0, max: 30, step: 1 })
+      .on('change', onChange);
+    edges
+      .addInput(params, 'selfLoopProbability', { label: 'Self-loop chance', min: 0, max: 1, step: 0.01 })
       .on('change', onChange);
 
     // --- Actions ---------------------------------------------------------

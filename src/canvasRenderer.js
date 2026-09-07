@@ -33,7 +33,7 @@
     p.endShape(p.CLOSE);
   }
 
-  function drawNode(p, node) {
+  function drawNode(p, node, showLabels) {
     p.push();
     p.translate(node.x, node.y);
     p.rotate(node.rotation || 0);
@@ -47,7 +47,7 @@
     }
     p.pop();
 
-    if (node.label) {
+    if (node.label && showLabels) {
       p.push();
       p.noStroke();
       p.fill(255);
@@ -160,6 +160,38 @@
     return out;
   }
 
+  /** N points along a cubic bezier defined by [start, control1, control2, end]. */
+  function sampleCubicBezier([a, c1, c2, b], n) {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      const mt = 1 - t;
+      out.push({
+        x: mt * mt * mt * a.x + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * b.x,
+        y: mt * mt * mt * a.y + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * b.y,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Geometry for a self-loop edge: two points on the node's own boundary
+   * (`loopAngle` +/- half of `loopSpread`), joined by a cubic bezier whose
+   * control points push outward to `loopSize` node-radii, so it reads as a
+   * loop bulging off the node rather than a degenerate zero-length line.
+   */
+  function selfLoopGeometry(node, edge) {
+    const r = nodeRadius(node);
+    const a1 = edge.loopAngle - edge.loopSpread / 2;
+    const a2 = edge.loopAngle + edge.loopSpread / 2;
+    const start = { x: node.x + Math.cos(a1) * r, y: node.y + Math.sin(a1) * r };
+    const end = { x: node.x + Math.cos(a2) * r, y: node.y + Math.sin(a2) * r };
+    const outR = r * (1 + edge.loopSize);
+    const c1 = { x: node.x + Math.cos(a1) * outR, y: node.y + Math.sin(a1) * outR };
+    const c2 = { x: node.x + Math.cos(a2) * outR, y: node.y + Math.sin(a2) * outR };
+    return { start, end, points: sampleCubicBezier([start, c1, c2, end], PATH_SAMPLES) };
+  }
+
   const PATH_SAMPLES = 32;
 
   function samplePath(style, start, end) {
@@ -208,8 +240,8 @@
    * between `start` and `end`, and returns the sampled points so the caller
    * can point arrowheads along the true path direction at each end.
    */
-  function drawTrunk(p, edge, start, end) {
-    const samples = edgeTrunkPoints(edge, start, end);
+  function drawTrunk(p, edge, start, end, precomputedSamples) {
+    const samples = precomputedSamples || edgeTrunkPoints(edge, start, end);
     const n = samples.length;
     const cum = [0];
     for (let i = 1; i < n; i++) {
@@ -276,6 +308,22 @@
   }
 
   function drawEdge(p, edge, nodeIndex) {
+    if (typeof edge.source === 'string' && edge.source === edge.target) {
+      const node = nodeIndex.get(edge.source);
+      if (!node) return;
+      const { start, end, points } = selfLoopGeometry(node, edge);
+      const samples = drawTrunk(p, edge, start, end, points);
+      if (edge.arrowStart) {
+        const towards = samples[1] || end;
+        drawArrowhead(p, start, Math.atan2(start.y - towards.y, start.x - towards.x), edge.color, edge.widthStart);
+      }
+      if (edge.arrowEnd) {
+        const towards = samples[samples.length - 2] || start;
+        drawArrowhead(p, end, Math.atan2(end.y - towards.y, end.x - towards.x), edge.color, edge.widthEnd);
+      }
+      return;
+    }
+
     const sourceResolved = resolveEndpoint(nodeIndex, edge.source);
     const targetResolved = resolveEndpoint(nodeIndex, edge.target);
     if (!sourceResolved || !targetResolved) return;
@@ -305,11 +353,12 @@
   }
 
   /** Draws nodes/edges only -- caller owns clearing/filling the background. */
-  function renderDiagramP5(p, diagram) {
+  function renderDiagramP5(p, diagram, options) {
+    const showLabels = !options || options.showLabels !== false;
     p.push();
     const nodeIndex = buildNodeIndex(diagram);
     diagram.edges.forEach((e) => drawEdge(p, e, nodeIndex));
-    diagram.nodes.forEach((n) => drawNode(p, n));
+    diagram.nodes.forEach((n) => drawNode(p, n, showLabels));
     p.pop();
   }
 
