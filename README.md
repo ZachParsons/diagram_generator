@@ -191,6 +191,14 @@ logic for how much of the ribbon at each point is actually drawn (dash gaps,
 stripe color, or dots-instead-of-ribbon) -- see `drawTrunk` in
 `canvasRenderer.js`.
 
+When an end has an arrowhead, the ribbon is held back from that tip by
+the arrowhead's own length (`drawTrunk`'s `trimStart`/`trimEnd`, sized via
+`arrowheadSize()`): an arrowhead tapers to a true zero-width point, but the
+untrimmed ribbon wouldn't -- it'd just stop with a flat, full-width cap
+sitting right at the tip, poking out past the now-thin arrowhead's sides
+instead of staying hidden under its wide base. The same trim applies to a
+branch line's arrow-tipped end.
+
 ### Size tiers
 
 With `sizeTiers` on (the default), node size and edge width don't sample

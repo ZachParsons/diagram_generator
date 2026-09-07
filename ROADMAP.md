@@ -8,7 +8,7 @@
 - [x] Pan & zoom on the canvas view.
 - [x] Edit nodes/edges by editing the values directly in the table panel.
 - [ ] Edges should be able to connect to other edges, not just nodes.
-- [ ] Arrow-line problem.
+- [x] Arrow-line problem.
 - [x] Toggleable node names.
 - [x] Edges should be able to go from and to the same node.
 - [x] Rename the control panel's "Relationships (edges)" section to just "Edges".

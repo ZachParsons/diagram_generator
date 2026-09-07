@@ -91,8 +91,13 @@
     return pullBack(towards, resolved.point, nodeRadius(resolved.node) + (gap || 0));
   }
 
+  /** How far back from its tip an arrowhead's wide base sits, given the line width it's capping. */
+  function arrowheadSize(width) {
+    return Math.max(8, (width || 4) * 1.8);
+  }
+
   function drawArrowhead(p, at, angle, color, width) {
-    const size = Math.max(8, (width || 4) * 1.8);
+    const size = arrowheadSize(width);
     p.push();
     p.translate(at.x, at.y);
     p.rotate(angle);
@@ -239,8 +244,15 @@
    * Draws the tapered, faded, patterned (solid/dashed/dotted/striped) path
    * between `start` and `end`, and returns the sampled points so the caller
    * can point arrowheads along the true path direction at each end.
+   *
+   * `trimStart`/`trimEnd` (arc-length pixels) hold the ribbon back from an
+   * arrow-tipped end: an arrowhead tapers to a zero-width point exactly at
+   * the tip, but the ribbon's own last segment doesn't (it just stops at a
+   * flat, `width`-wide cap), so without trimming, that flat cap pokes out
+   * past the sides of the now-thin arrowhead right near the point instead
+   * of staying hidden under the arrowhead's wide base.
    */
-  function drawTrunk(p, edge, start, end, precomputedSamples) {
+  function drawTrunk(p, edge, start, end, precomputedSamples, trimStart, trimEnd) {
     const samples = precomputedSamples || edgeTrunkPoints(edge, start, end);
     const n = samples.length;
     const cum = [0];
@@ -248,6 +260,8 @@
       cum.push(cum[i - 1] + Math.hypot(samples[i].x - samples[i - 1].x, samples[i].y - samples[i - 1].y));
     }
     const total = cum[n - 1] || 1;
+    const lo = trimStart || 0;
+    const hi = total - (trimEnd || 0);
     const widthAt = (t) => lerp(edge.widthStart, edge.widthEnd, t);
     const opacityAt = (t) => lerp(edge.opacityStart, edge.opacityEnd, t);
 
@@ -257,6 +271,7 @@
     if (edge.pattern === 'dotted') {
       const spacing = Math.max(6, edge.widthStart + edge.widthEnd);
       for (let d = 0, seg = 0; d <= total; d += spacing) {
+        if (d < lo || d > hi) continue;
         while (seg < n - 2 && cum[seg + 1] < d) seg++;
         const segLen = cum[seg + 1] - cum[seg] || 1;
         const segT = (d - cum[seg]) / segLen;
@@ -270,9 +285,10 @@
       const period = edge.pattern === 'dashed' ? 17 : edge.pattern === 'striped' ? 14 : Infinity;
       const dashOn = edge.pattern === 'dashed' ? 10 : period;
       for (let i = 0; i < n - 1; i++) {
+        const mid = (cum[i] + cum[i + 1]) / 2;
+        if (mid < lo || mid > hi) continue;
         const tA = cum[i] / total;
         const tB = cum[i + 1] / total;
-        const mid = (cum[i] + cum[i + 1]) / 2;
         if ((mid % period) >= dashOn) continue; // dashed gap
         const fillColor = edge.pattern === 'striped' && Math.floor(mid / period) % 2 === 1 ? edge.color2 : edge.color;
         const opacity = opacityAt((tA + tB) / 2);
@@ -299,7 +315,9 @@
       const anchor = resolved.node ? pullBack(trunkPoint, resolved.point, nodeRadius(resolved.node)) : resolved.point;
       const from = arrowFromTrunk ? trunkPoint : anchor;
       const to = arrowFromTrunk ? anchor : trunkPoint;
-      drawBranchLine(p, from, to, width, edge.color, opacity);
+      // Hold the line back from the arrow tip -- see drawTrunk's trimStart/trimEnd comment for why.
+      const lineEnd = arrowOn ? pullBack(from, to, arrowheadSize(width)) : to;
+      drawBranchLine(p, from, lineEnd, width, edge.color, opacity);
       if (arrowOn) {
         const angle = Math.atan2(to.y - from.y, to.x - from.x);
         drawArrowhead(p, to, angle, edge.color, width);
@@ -312,7 +330,9 @@
       const node = nodeIndex.get(edge.source);
       if (!node) return;
       const { start, end, points } = selfLoopGeometry(node, edge);
-      const samples = drawTrunk(p, edge, start, end, points);
+      const trimStart = edge.arrowStart ? arrowheadSize(edge.widthStart) : 0;
+      const trimEnd = edge.arrowEnd ? arrowheadSize(edge.widthEnd) : 0;
+      const samples = drawTrunk(p, edge, start, end, points, trimStart, trimEnd);
       if (edge.arrowStart) {
         const towards = samples[1] || end;
         drawArrowhead(p, start, Math.atan2(start.y - towards.y, start.x - towards.x), edge.color, edge.widthStart);
@@ -331,7 +351,9 @@
     const start = endpointAnchor(sourceResolved, targetResolved.point, edge.sourceGap);
     const end = endpointAnchor(targetResolved, sourceResolved.point, edge.targetGap);
 
-    const samples = drawTrunk(p, edge, start, end);
+    const trimStart = edge.arrowStart ? arrowheadSize(edge.widthStart) : 0;
+    const trimEnd = edge.arrowEnd ? arrowheadSize(edge.widthEnd) : 0;
+    const samples = drawTrunk(p, edge, start, end, undefined, trimStart, trimEnd);
 
     if (edge.extraSources && edge.extraSources.length) {
       drawBranches(p, edge.extraSources, start, nodeIndex, edge, edge.widthStart, edge.opacityStart, edge.arrowStart, false);
