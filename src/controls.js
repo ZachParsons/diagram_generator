@@ -37,6 +37,8 @@
     nodes.addInput(params, 'blobPointsMax', { label: 'Blob points max', min: 4, max: 20, step: 1 }).on('change', onChange);
     nodes.addInput(params, 'sizeMin', { label: 'Size min', min: 4, max: 400, step: 1 }).on('change', onChange);
     nodes.addInput(params, 'sizeMax', { label: 'Size max', min: 4, max: 400, step: 1 }).on('change', onChange);
+    nodes.addInput(params, 'sizeTiers', { label: 'Size tiers (nodes & edges)' }).on('change', onChange);
+    nodes.addInput(params, 'largeTierProbability', { label: 'Large tier chance', min: 0, max: 1, step: 0.01 }).on('change', onChange);
     nodes.addInput(params, 'rotationRandom', { label: 'Random rotation' }).on('change', onChange);
 
     // --- Layout ---------------------------------------------------------

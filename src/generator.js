@@ -12,6 +12,28 @@
     return a === undefined ? `hsl(${h}, ${s}%, ${l}%)` : `hsla(${h}, ${s}%, ${l}%, ${a.toFixed(2)})`;
   }
 
+  /**
+   * Whether a size roll should land in the "large" tier, the "small" tier,
+   * or (tiers disabled) neither -- shared by node sizing and edge width so
+   * "more variance, some smalls and some larges" means the same thing in
+   * both places. Returns null when tiering is off, else a boolean.
+   */
+  function pickSizeTier(rng, params) {
+    return params.sizeTiers ? rng.bool(params.largeTierProbability) : null;
+  }
+
+  /**
+   * Samples within [min,max], but when `isLarge` isn't null, restricts to
+   * the top 40% (large) or bottom 40% (small) of the range instead of the
+   * whole span -- leaving a gap in the middle so results cluster into two
+   * visibly distinct size classes rather than spreading evenly.
+   */
+  function tieredRange(rng, min, max, isLarge) {
+    if (isLarge === null) return rng.range(min, max);
+    const span = max - min;
+    return isLarge ? rng.range(min + span * 0.6, max) : rng.range(min, min + span * 0.4);
+  }
+
   function pickShape(params, rng) {
     const enabled = DG.SHAPES.filter((s) => params.shapes[s]);
     return enabled.length ? rng.pick(enabled) : 'blob';
@@ -104,14 +126,14 @@
   }
 
   function edgeStyleValues(params, rng) {
-    const widthStart = rng.range(params.edgeWidthMin, params.edgeWidthMax);
+    const widthStart = tieredRange(rng, params.edgeWidthMin, params.edgeWidthMax, pickSizeTier(rng, params));
     const opacityStart = rng.range(params.edgeOpacityMin, params.edgeOpacityMax);
     const arrowMode = resolveArrowMode(params, rng);
     return {
       style: params.edgeStyle,
       pattern: pickPattern(params, rng),
       widthStart,
-      widthEnd: params.edgeTaper ? rng.range(params.edgeWidthMin, params.edgeWidthMax) : widthStart,
+      widthEnd: params.edgeTaper ? tieredRange(rng, params.edgeWidthMin, params.edgeWidthMax, pickSizeTier(rng, params)) : widthStart,
       opacityStart,
       opacityEnd: params.edgeFade ? rng.range(params.edgeOpacityMin, params.edgeOpacityMax) : opacityStart,
       color: hslString(rng.range(0, 360), 15, rng.range(55, 85)),
@@ -198,8 +220,9 @@
 
     for (let i = 0; i < params.nodeCount; i++) {
       const shape = pickShape(params, rng);
-      const w = rng.range(params.sizeMin, params.sizeMax);
-      const h = rng.range(params.sizeMin, params.sizeMax);
+      const sizeTier = pickSizeTier(rng, params);
+      const w = tieredRange(rng, params.sizeMin, params.sizeMax, sizeTier);
+      const h = tieredRange(rng, params.sizeMin, params.sizeMax, sizeTier);
       diagram.nodes.push(buildNode(`n${i}`, `N${i}`, null, shape, positions[i], { w, h }, params, rng));
     }
 
@@ -239,8 +262,9 @@
 
     dataNodes.forEach((dn, i) => {
       const shape = pickShape(params, rng);
-      const w = rng.range(params.sizeMin, params.sizeMax);
-      const h = rng.range(params.sizeMin, params.sizeMax);
+      const sizeTier = pickSizeTier(rng, params);
+      const w = tieredRange(rng, params.sizeMin, params.sizeMax, sizeTier);
+      const h = tieredRange(rng, params.sizeMin, params.sizeMax, sizeTier);
       diagram.nodes.push(
         buildNode(
           dn.id !== undefined ? String(dn.id) : `n${i}`,

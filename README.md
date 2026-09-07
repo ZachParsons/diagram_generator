@@ -146,6 +146,20 @@ logic for how much of the ribbon at each point is actually drawn (dash gaps,
 stripe color, or dots-instead-of-ribbon) -- see `drawTrunk` in
 `canvasRenderer.js`.
 
+### Size tiers
+
+With `sizeTiers` on (the default), node size and edge width don't sample
+evenly across `sizeMin`-`sizeMax` / `edgeWidthMin`-`edgeWidthMax` -- each
+roll instead lands in either the bottom 40% or top 40% of that range
+(`largeTierProbability` sets the odds of landing in the top), skipping the
+middle entirely. That's what produces a visible mix of small and large
+nodes/edges rather than a smooth gradient of in-between sizes. See
+`pickSizeTier`/`tieredRange` in `generator.js`. Node width and height share
+one tier roll (so a node reads as clearly "small" or "large" overall,
+even though its exact width/height still vary within that tier); an edge's
+two ends each roll their own tier, so some edges taper dramatically from a
+large end to a small one.
+
 ## Generating from input data
 
 `DG.generateFromData(inputData, params)` takes:

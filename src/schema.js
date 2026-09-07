@@ -75,6 +75,12 @@
       blobPointsMax: 11,
       sizeMin: 24,
       sizeMax: 70,
+      // When on, node size and edge width both sample from the bottom or
+      // top 40% of their min/max range instead of the whole span, so
+      // results cluster into visibly distinct small/large tiers instead of
+      // an even spread -- see generator.js's tieredRange().
+      sizeTiers: true,
+      largeTierProbability: 0.4,
       rotationRandom: true,
 
       layout: 'random',
