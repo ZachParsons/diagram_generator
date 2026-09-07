@@ -141,7 +141,7 @@
 
     p.mouseWheel = (event) => {
       if (!currentDiagram || !view || !withinCanvas()) return;
-      const factor = Math.min(1.25, Math.max(0.8, Math.exp(-event.deltaY * 0.001)));
+      const factor = Math.min(1.75, Math.max(0.57, Math.exp(-event.deltaY * 0.00405)));
       zoomAround(p.mouseX, p.mouseY, factor);
       p.redraw();
       return false; // prevent the page itself from scrolling
@@ -205,12 +205,12 @@
   // --- view controls (zoom in/out/reset) ------------------------------------
   document.getElementById('zoom-in').addEventListener('click', () => {
     if (!p5Instance || !view) return;
-    zoomAround(p5Instance.width / 2, p5Instance.height / 2, 1.25);
+    zoomAround(p5Instance.width / 2, p5Instance.height / 2, 1.5);
     p5Instance.redraw();
   });
   document.getElementById('zoom-out').addEventListener('click', () => {
     if (!p5Instance || !view) return;
-    zoomAround(p5Instance.width / 2, p5Instance.height / 2, 0.8);
+    zoomAround(p5Instance.width / 2, p5Instance.height / 2, 1 / 1.5);
     p5Instance.redraw();
   });
   document.getElementById('zoom-reset').addEventListener('click', () => {
