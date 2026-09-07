@@ -111,6 +111,22 @@
     edges
       .addInput(params, 'selfLoopProbability', { label: 'Self-loop chance', min: 0, max: 1, step: 0.01 })
       .on('change', onChange);
+    edges
+      .addInput(params, 'edgeToEdgeProbability', { label: 'Edge-to-edge chance', min: 0, max: 1, step: 0.01 })
+      .on('change', onChange);
+
+    // --- Recursion --------------------------------------------------------
+    // Nodes can contain their own nested nodes/edges, clipped to the parent
+    // node's shape -- see generator.js's generateChildDiagram(). Off by
+    // default (probability 0): it's the more expensive/dense option, and a
+    // reroll with it enabled can look very different from one without.
+    const recursion = pane.addFolder({ title: 'Recursion' });
+    recursion
+      .addInput(params, 'recursionProbability', { label: 'Chance per node', min: 0, max: 1, step: 0.01 })
+      .on('change', onChange);
+    recursion.addInput(params, 'recursionMaxDepth', { label: 'Max depth', min: 0, max: 5, step: 1 }).on('change', onChange);
+    recursion.addInput(params, 'recursionMinChildren', { label: 'Children min', min: 1, max: 20, step: 1 }).on('change', onChange);
+    recursion.addInput(params, 'recursionMaxChildren', { label: 'Children max', min: 1, max: 20, step: 1 }).on('change', onChange);
 
     // --- Actions ---------------------------------------------------------
     // Regenerate is a reroll (new seed, same settings) -- with an unchanged

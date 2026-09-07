@@ -19,18 +19,24 @@
  *       points: [{x,y}, ...],  // closed outline, local coords relative to (x,y), pre-rotation
  *       curved,          // true: render as a smooth closed curve through `points`; false: straight edges
  *       rotation,        // radians
- *       fill, fillOpacity   // fill is a CSS color string (e.g. 'hsl(210,70%,55%)' or '#3366ff'); shapes are unoutlined (fill only)
+ *       fill, fillOpacity,  // fill is a CSS color string (e.g. 'hsl(210,70%,55%)' or '#3366ff'); shapes are unoutlined (fill only)
+ *       children         // optional nested { nodes, edges } (same shapes recursively),
+ *                        // clipped to this node's outline and rendered in this node's own
+ *                        // local coordinate space (same origin/rotation as `points`) --
+ *                        // see generator.js's generateChildDiagram()/params.recursionProbability
  *     }, ...
  *   ],
  *   edges: [
  *     {
  *       id,
- *       source, target,       // EITHER a node id string OR a literal {x,y} point --
- *                              // a literal point is a "floating" endpoint, not
- *                              // attached to any node
- *       extraSources,          // optional array of extra source refs (node id or
- *                              // {x,y}) that converge into `source`, drawn as thin
- *                              // branch lines -- omit/[] for a plain single edge
+ *       source, target,       // a node id string, a literal {x,y} point (a "floating"
+ *                              // endpoint attached to nothing), or an edge reference
+ *                              // { edgeRef: <edge id>, t: 0..1 } -- a point that far
+ *                              // along another edge's own rendered path, attached to
+ *                              // that edge rather than to any node
+ *       extraSources,          // optional array of extra source refs (node id, {x,y},
+ *                              // or edge ref) that converge into `source`, drawn as
+ *                              // thin branch lines -- omit/[] for a plain single edge
  *       extraTargets,          // optional array of extra target refs that `target`
  *                              // splits/diverges into, drawn as thin branch lines
  *       style: 'straight' | 'curved' | 'orthogonal',   // path shape
@@ -126,6 +132,18 @@
       edgeBranchProbability: 0.12,
       floatingEdgeCount: 3,
       selfLoopProbability: 0.08,
+      // Chance that a branch endpoint or floating edge endpoint attaches to
+      // another edge (a point partway along its path) instead of a node or
+      // bare {x,y} point -- see generator.js's maybeEdgeEndpoint().
+      edgeToEdgeProbability: 0.1,
+
+      // Recursion: nodes can contain their own nested nodes/edges, clipped
+      // to the parent node's shape -- see generator.js's generateChildDiagram().
+      // Off by default (probability 0) since it's the more expensive/dense option.
+      recursionProbability: 0,
+      recursionMaxDepth: 2,
+      recursionMinChildren: 2,
+      recursionMaxChildren: 4,
 
       useInputData: false,
     };
@@ -149,6 +167,60 @@
     };
   }
 
+  /**
+   * Validates one { nodes, edges } level (the top-level diagram, or any
+   * node's nested `children`) and recurses into every node's `children`.
+   * `label` prefixes error messages so a problem inside a deeply nested
+   * diagram still points at where it lives (e.g. `n3.children`).
+   */
+  function validateNodesEdges(nodes, edges, label, errors) {
+    if (!Array.isArray(nodes)) {
+      errors.push(`${label}: missing "nodes" array.`);
+      return;
+    }
+    if (!Array.isArray(edges)) {
+      errors.push(`${label}: missing "edges" array.`);
+      return;
+    }
+
+    const ids = new Set();
+    nodes.forEach((n, i) => {
+      if (n.id === undefined || n.id === null) errors.push(`${label}: node[${i}] missing "id".`);
+      else if (ids.has(n.id)) errors.push(`${label}: duplicate node id "${n.id}".`);
+      else ids.add(n.id);
+      if (typeof n.x !== 'number' || typeof n.y !== 'number') {
+        errors.push(`${label}: node "${n.id}" missing numeric x/y.`);
+      }
+    });
+
+    const edgeIds = new Set();
+    edges.forEach((e) => {
+      if (e.id !== undefined && e.id !== null) edgeIds.add(e.id);
+    });
+    // An edge endpoint is a known node id, a literal {x,y} point (a
+    // "floating" endpoint not attached to any node), or an edge reference
+    // { edgeRef: <edge id>, t } attaching to a point along another edge.
+    function validEndpoint(ref) {
+      if (typeof ref === 'string') return ids.has(ref);
+      if (ref && typeof ref.edgeRef === 'string') return edgeIds.has(ref.edgeRef) && typeof ref.t === 'number';
+      return ref && typeof ref.x === 'number' && typeof ref.y === 'number';
+    }
+    edges.forEach((e, i) => {
+      if (!validEndpoint(e.source)) errors.push(`${label}: edge[${i}] source "${JSON.stringify(e.source)}" is not a known node id, edge ref, or {x,y} point.`);
+      if (!validEndpoint(e.target)) errors.push(`${label}: edge[${i}] target "${JSON.stringify(e.target)}" is not a known node id, edge ref, or {x,y} point.`);
+      (e.extraSources || []).forEach((ref, j) => {
+        if (!validEndpoint(ref)) errors.push(`${label}: edge[${i}] extraSources[${j}] is not a known node id, edge ref, or {x,y} point.`);
+      });
+      (e.extraTargets || []).forEach((ref, j) => {
+        if (!validEndpoint(ref)) errors.push(`${label}: edge[${i}] extraTargets[${j}] is not a known node id, edge ref, or {x,y} point.`);
+      });
+    });
+
+    nodes.forEach((n) => {
+      if (n.children) validateNodesEdges(n.children.nodes, n.children.edges, `${label}: node "${n.id}".children`, errors);
+    });
+  }
+
   /** Very light structural check so a hand-edited/foreign JSON file fails loudly, not silently. */
   function validateDiagram(diagram) {
     const errors = [];
@@ -160,31 +232,7 @@
     if (!Array.isArray(diagram.edges)) errors.push('Missing "edges" array.');
     if (errors.length) return errors;
 
-    const ids = new Set();
-    diagram.nodes.forEach((n, i) => {
-      if (n.id === undefined || n.id === null) errors.push(`Node[${i}] missing "id".`);
-      else if (ids.has(n.id)) errors.push(`Duplicate node id "${n.id}".`);
-      else ids.add(n.id);
-      if (typeof n.x !== 'number' || typeof n.y !== 'number') {
-        errors.push(`Node "${n.id}" missing numeric x/y.`);
-      }
-    });
-    // An edge endpoint is either a known node id or a literal {x,y} point (a
-    // "floating" endpoint not attached to any node).
-    function validEndpoint(ref) {
-      if (typeof ref === 'string') return ids.has(ref);
-      return ref && typeof ref.x === 'number' && typeof ref.y === 'number';
-    }
-    diagram.edges.forEach((e, i) => {
-      if (!validEndpoint(e.source)) errors.push(`Edge[${i}] source "${JSON.stringify(e.source)}" is not a known node id or {x,y} point.`);
-      if (!validEndpoint(e.target)) errors.push(`Edge[${i}] target "${JSON.stringify(e.target)}" is not a known node id or {x,y} point.`);
-      (e.extraSources || []).forEach((ref, j) => {
-        if (!validEndpoint(ref)) errors.push(`Edge[${i}] extraSources[${j}] is not a known node id or {x,y} point.`);
-      });
-      (e.extraTargets || []).forEach((ref, j) => {
-        if (!validEndpoint(ref)) errors.push(`Edge[${i}] extraTargets[${j}] is not a known node id or {x,y} point.`);
-      });
-    });
+    validateNodesEdges(diagram.nodes, diagram.edges, 'diagram', errors);
     return errors;
   }
 

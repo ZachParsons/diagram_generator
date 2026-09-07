@@ -349,20 +349,35 @@
   }
 
   /**
+   * With probability `edgeToEdgeProbability`, replaces `fallback` (a node id
+   * or bare {x,y} point) with a reference to a point partway along one of
+   * `edges` instead -- an endpoint attached to another edge rather than to
+   * any node. `edges` is whatever's already been generated so far, so an
+   * edge can only ever attach to an earlier edge, never to itself.
+   */
+  function maybeEdgeEndpoint(rng, params, edges, fallback) {
+    if (edges.length && rng.bool(params.edgeToEdgeProbability)) {
+      return { edgeRef: rng.pick(edges).id, t: rng.range(0, 1) };
+    }
+    return fallback;
+  }
+
+  /**
    * With probability `edgeBranchProbability`, turns a plain edge into a
    * split (extra branch fanning out from the target) or a converge (extra
    * branch feeding into the source). The branch endpoint is usually another
-   * node, but is sometimes a bare {x,y} point -- an edge end that isn't
-   * attached to any node at all.
+   * node, but is sometimes a bare {x,y} point or a reference to another edge
+   * -- an edge end that isn't attached to any node at all.
    */
-  function maybeAddBranch(edge, nodes, params, rng) {
+  function maybeAddBranch(edge, nodes, edges, params, rng) {
     if (!rng.bool(params.edgeBranchProbability)) return;
     const usedIds = new Set([edge.source, edge.target]);
     const candidates = nodes.filter((n) => !usedIds.has(n.id));
-    const endpoint =
+    const fallback =
       candidates.length && rng.bool(0.7)
         ? rng.pick(candidates).id
         : { x: rng.range(0, params.width), y: rng.range(0, params.height) };
+    const endpoint = maybeEdgeEndpoint(rng, params, edges, fallback);
     if (rng.bool(0.5)) {
       edge.extraTargets = [endpoint];
     } else {
@@ -376,7 +391,7 @@
     if (params.edgeMode !== 'none' && nodes.length >= 2) {
       const push = (source, target) => {
         const edge = makeEdge(`e${n++}`, source, target, params, rng);
-        maybeAddBranch(edge, nodes, params, rng);
+        maybeAddBranch(edge, nodes, edges, params, rng);
         edges.push(edge);
       };
 
@@ -400,15 +415,57 @@
     }
 
     // Decorative edges with both ends floating free in space, attached to no
-    // node at all -- the most literal reading of "edges that don't start or
-    // end at a node".
+    // node at all (or, sometimes, attached instead to another edge) -- the
+    // most literal reading of "edges that don't start or end at a node".
     for (let i = 0; i < params.floatingEdgeCount; i++) {
-      const a = { x: rng.range(0, params.width), y: rng.range(0, params.height) };
-      const b = { x: rng.range(0, params.width), y: rng.range(0, params.height) };
+      const aFallback = { x: rng.range(0, params.width), y: rng.range(0, params.height) };
+      const bFallback = { x: rng.range(0, params.width), y: rng.range(0, params.height) };
+      const a = maybeEdgeEndpoint(rng, params, edges, aFallback);
+      const b = maybeEdgeEndpoint(rng, params, edges, bFallback);
       edges.push(makeEdge(`f${i}`, a, b, params, rng));
     }
 
     return edges;
+  }
+
+  /**
+   * A nested { nodes, edges } living entirely within a `boxW` x `boxH` box
+   * centered on (0,0) -- the same local coordinate convention as a node's
+   * own `points` -- so it can be rendered directly inside the parent node's
+   * transform with no extra translate/scale. Recurses into its own
+   * children up to `params.recursionMaxDepth`, each recursion shrinking the
+   * box so nesting can't outgrow its container.
+   */
+  function generateChildDiagram(boxW, boxH, idPrefix, params, rng, depth) {
+    const count = rng.int(params.recursionMinChildren, params.recursionMaxChildren);
+    const padding = Math.min(boxW, boxH) * 0.12;
+    const positions = DG.layouts[params.layout](count, boxW, boxH, padding, rng).map((pt) => ({
+      x: pt.x - boxW / 2,
+      y: pt.y - boxH / 2,
+    }));
+    const minDim = Math.min(boxW, boxH);
+    const sizeMin = Math.max(4, minDim * 0.18);
+    const sizeMax = Math.max(sizeMin + 1, minDim * 0.4);
+
+    const nodes = [];
+    for (let i = 0; i < count; i++) {
+      const shape = pickShape(params, rng);
+      const sizeTier = pickSizeTier(rng, params);
+      const w = tieredRange(rng, sizeMin, sizeMax, sizeTier);
+      const h = tieredRange(rng, sizeMin, sizeMax, sizeTier);
+      const node = buildNode(`${idPrefix}n${i}`, `${idPrefix}n${i}`, null, shape, positions[i], { w, h }, params, rng);
+      if (depth < params.recursionMaxDepth && rng.bool(params.recursionProbability)) {
+        node.children = generateChildDiagram(w * 0.85, h * 0.85, `${node.id}.`, params, rng, depth + 1);
+      }
+      nodes.push(node);
+    }
+
+    // Reuses the normal random-edge generator, boxed to this local space --
+    // floating edges are capped low so nested diagrams stay legible rather
+    // than adding their own full share of decorative clutter.
+    const childParams = Object.assign({}, params, { width: boxW, height: boxH, floatingEdgeCount: Math.min(params.floatingEdgeCount, 1) });
+    const edges = generateRandomEdges(nodes, childParams, rng);
+    return { nodes, edges };
   }
 
   /** Fully random generation driven only by params. */
@@ -428,7 +485,11 @@
       const sizeTier = pickSizeTier(rng, params);
       const w = tieredRange(rng, params.sizeMin, params.sizeMax, sizeTier);
       const h = tieredRange(rng, params.sizeMin, params.sizeMax, sizeTier);
-      diagram.nodes.push(buildNode(`n${i}`, `N${i}`, null, shape, positions[i], { w, h }, params, rng));
+      const node = buildNode(`n${i}`, `N${i}`, null, shape, positions[i], { w, h }, params, rng);
+      if (params.recursionMaxDepth > 0 && rng.bool(params.recursionProbability)) {
+        node.children = generateChildDiagram(w * 0.85, h * 0.85, `${node.id}.`, params, rng, 1);
+      }
+      diagram.nodes.push(node);
     }
 
     diagram.edges = generateRandomEdges(diagram.nodes, params, rng);

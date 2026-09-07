@@ -82,6 +82,7 @@
           step: 1,
         }),
         colorCell(n.fill, onField && set('fill')),
+        el('td', { text: n.children ? String(n.children.nodes.length) : '' }),
       ]);
     });
     return el('table', { class: 'diagram-table' }, [
@@ -89,7 +90,7 @@
         el(
           'tr',
           {},
-          ['ID', 'Label', 'Group', 'Shape', 'X', 'Y', 'W', 'H', 'Rotation°', 'Fill'].map((h) => el('th', { text: h }))
+          ['ID', 'Label', 'Group', 'Shape', 'X', 'Y', 'W', 'H', 'Rotation°', 'Fill', 'Children'].map((h) => el('th', { text: h }))
         ),
       ]),
       el('tbody', {}, rows),
@@ -97,7 +98,9 @@
   }
 
   function refLabel(ref) {
-    return typeof ref === 'string' ? ref : `(${ref.x.toFixed(0)}, ${ref.y.toFixed(0)})`;
+    if (typeof ref === 'string') return ref;
+    if (ref && typeof ref.edgeRef === 'string') return `edge:${ref.edgeRef}@${ref.t.toFixed(2)}`;
+    return `(${ref.x.toFixed(0)}, ${ref.y.toFixed(0)})`;
   }
 
   function branchCount(e) {

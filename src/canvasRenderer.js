@@ -5,9 +5,15 @@
  * different generator) renders the same way.
  */
 (function (global) {
-  function buildNodeIndex(diagram) {
+  function buildNodeIndex(nodes) {
     const map = new Map();
-    diagram.nodes.forEach((n) => map.set(n.id, n));
+    nodes.forEach((n) => map.set(n.id, n));
+    return map;
+  }
+
+  function buildEdgeIndex(edges) {
+    const map = new Map();
+    edges.forEach((e) => map.set(e.id, e));
     return map;
   }
 
@@ -33,7 +39,59 @@
     p.endShape(p.CLOSE);
   }
 
-  function drawNode(p, node, showLabels) {
+  /** Point on a uniform Catmull-Rom segment (p1->p2, neighbors p0/p3) at t -- matches p5's curveVertex math closely enough to use for a clip path. */
+  function catmullRomPoint(p0, p1, p2, p3, t) {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return {
+      x: 0.5 * (2 * p1.x + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+      y: 0.5 * (2 * p1.y + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
+    };
+  }
+
+  /** A curved closed outline sampled down to a plain polygon -- close enough to drawCurvedClosed's actual curve to double as a clip path. */
+  function sampleClosedCurveOutline(points, perSegment) {
+    const n = points.length;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const p0 = points[(i - 1 + n) % n];
+      const p1 = points[i];
+      const p2 = points[(i + 1) % n];
+      const p3 = points[(i + 2) % n];
+      for (let s = 0; s < perSegment; s++) out.push(catmullRomPoint(p0, p1, p2, p3, s / perSegment));
+    }
+    return out;
+  }
+
+  /**
+   * Clips all subsequent drawing to `node`'s own outline, in the current
+   * (already translated+rotated) transform -- this is how a node's nested
+   * `children` (see renderNodesAndEdges) end up rendered only inside their
+   * container's shape instead of spilling out past it. Every call must be
+   * paired with a later unclip() before the enclosing p.pop().
+   */
+  function clipToNodeShape(p, node) {
+    const ctx = p.drawingContext;
+    const outline = node.curved ? sampleClosedCurveOutline(node.points, 8) : node.points;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(outline[0].x, outline[0].y);
+    for (let i = 1; i < outline.length; i++) ctx.lineTo(outline[i].x, outline[i].y);
+    ctx.closePath();
+    ctx.clip();
+  }
+
+  function unclip(p) {
+    p.drawingContext.restore();
+  }
+
+  // A safety cap on how many `children` levels actually get rendered,
+  // independent of the generator's own params.recursionMaxDepth -- so a
+  // hand-edited/imported diagram JSON with runaway nesting can't hang the
+  // renderer.
+  const MAX_RENDER_RECURSION_DEPTH = 8;
+
+  function drawNode(p, node, showLabels, depth) {
     p.push();
     p.translate(node.x, node.y);
     p.rotate(node.rotation || 0);
@@ -44,6 +102,12 @@
       drawCurvedClosed(p, node.points);
     } else {
       drawStraightClosed(p, node.points);
+    }
+
+    if (node.children && depth < MAX_RENDER_RECURSION_DEPTH && (node.children.nodes.length || node.children.edges.length)) {
+      clipToNodeShape(p, node);
+      renderNodesAndEdges(p, node.children.nodes, node.children.edges, showLabels, depth + 1);
+      unclip(p);
     }
     p.pop();
 
@@ -72,17 +136,59 @@
   }
 
   /**
-   * Resolves an edge endpoint reference -- a node id string, or a literal
-   * {x,y} point -- to { point, node }. `node` is null for a literal point:
-   * a "floating" endpoint that isn't attached to anything and so never gets
-   * pulled back off a node boundary.
+   * Resolves an edge endpoint reference -- a node id string, a literal
+   * {x,y} point, or an edge reference { edgeRef, t } -- to { point, node }.
+   * `node` is null for a literal point or an edge reference: neither is
+   * attached to a node's shape, so neither ever gets pulled back off a
+   * node boundary (see endpointAnchor).
+   *
+   * `visiting` is the set of edge ids already being resolved up the current
+   * call chain -- an edge ref that points back into one of them (directly,
+   * or through a longer cycle of edges referencing each other) resolves to
+   * null instead of recursing forever.
    */
-  function resolveEndpoint(nodeIndex, ref) {
+  function resolveEndpoint(nodeIndex, edgeIndex, ref, visiting) {
     if (typeof ref === 'string') {
       const node = nodeIndex.get(ref);
       return node ? { point: { x: node.x, y: node.y }, node } : null;
     }
+    if (ref && typeof ref.edgeRef === 'string') {
+      if (visiting.has(ref.edgeRef)) return null;
+      const edge = edgeIndex.get(ref.edgeRef);
+      if (!edge) return null;
+      const point = edgePointAt(edge, ref.t, nodeIndex, edgeIndex, visiting);
+      return point ? { point, node: null } : null;
+    }
     return ref && typeof ref.x === 'number' && typeof ref.y === 'number' ? { point: ref, node: null } : null;
+  }
+
+  /**
+   * The trunk points of `edge` itself (its self-loop bezier if it's a
+   * self-loop, else its normal start->end path), used both to draw the
+   * edge and to resolve some other edge's endpoint that references a point
+   * along it. Returns null if `edge`'s own endpoints don't resolve.
+   */
+  function edgeTrunkSamples(edge, nodeIndex, edgeIndex, visiting) {
+    const nextVisiting = new Set(visiting);
+    nextVisiting.add(edge.id);
+    if (typeof edge.source === 'string' && edge.source === edge.target) {
+      const node = nodeIndex.get(edge.source);
+      return node ? selfLoopGeometry(node, edge).points : null;
+    }
+    const sourceResolved = resolveEndpoint(nodeIndex, edgeIndex, edge.source, nextVisiting);
+    const targetResolved = resolveEndpoint(nodeIndex, edgeIndex, edge.target, nextVisiting);
+    if (!sourceResolved || !targetResolved) return null;
+    const start = endpointAnchor(sourceResolved, targetResolved.point, edge.sourceGap);
+    const end = endpointAnchor(targetResolved, sourceResolved.point, edge.targetGap);
+    return edgeTrunkPoints(edge, start, end);
+  }
+
+  /** The point `t` (0..1) of the way along `edge`'s own rendered path, or null if it doesn't resolve. */
+  function edgePointAt(edge, t, nodeIndex, edgeIndex, visiting) {
+    const samples = edgeTrunkSamples(edge, nodeIndex, edgeIndex, visiting);
+    if (!samples || !samples.length) return null;
+    const clamped = Math.max(0, Math.min(1, t));
+    return samples[Math.round(clamped * (samples.length - 1))];
   }
 
   /** The point where a line touching `resolved` should actually start/end: its own boundary (+ gap), or the literal point if it's floating. */
@@ -308,9 +414,9 @@
   }
 
   /** Draws extra branch lines converging into `trunkPoint` (or diverging out of it) plus their own arrowheads. */
-  function drawBranches(p, refs, trunkPoint, nodeIndex, edge, width, opacity, arrowOn, arrowFromTrunk) {
+  function drawBranches(p, refs, trunkPoint, nodeIndex, edgeIndex, edge, width, opacity, arrowOn, arrowFromTrunk) {
     refs.forEach((ref) => {
-      const resolved = resolveEndpoint(nodeIndex, ref);
+      const resolved = resolveEndpoint(nodeIndex, edgeIndex, ref, new Set([edge.id]));
       if (!resolved) return;
       const anchor = resolved.node ? pullBack(trunkPoint, resolved.point, nodeRadius(resolved.node)) : resolved.point;
       const from = arrowFromTrunk ? trunkPoint : anchor;
@@ -325,7 +431,7 @@
     });
   }
 
-  function drawEdge(p, edge, nodeIndex) {
+  function drawEdge(p, edge, nodeIndex, edgeIndex) {
     if (typeof edge.source === 'string' && edge.source === edge.target) {
       const node = nodeIndex.get(edge.source);
       if (!node) return;
@@ -344,8 +450,9 @@
       return;
     }
 
-    const sourceResolved = resolveEndpoint(nodeIndex, edge.source);
-    const targetResolved = resolveEndpoint(nodeIndex, edge.target);
+    const visiting = new Set([edge.id]);
+    const sourceResolved = resolveEndpoint(nodeIndex, edgeIndex, edge.source, visiting);
+    const targetResolved = resolveEndpoint(nodeIndex, edgeIndex, edge.target, visiting);
     if (!sourceResolved || !targetResolved) return;
 
     const start = endpointAnchor(sourceResolved, targetResolved.point, edge.sourceGap);
@@ -356,10 +463,10 @@
     const samples = drawTrunk(p, edge, start, end, undefined, trimStart, trimEnd);
 
     if (edge.extraSources && edge.extraSources.length) {
-      drawBranches(p, edge.extraSources, start, nodeIndex, edge, edge.widthStart, edge.opacityStart, edge.arrowStart, false);
+      drawBranches(p, edge.extraSources, start, nodeIndex, edgeIndex, edge, edge.widthStart, edge.opacityStart, edge.arrowStart, false);
     }
     if (edge.extraTargets && edge.extraTargets.length) {
-      drawBranches(p, edge.extraTargets, end, nodeIndex, edge, edge.widthEnd, edge.opacityEnd, edge.arrowEnd, true);
+      drawBranches(p, edge.extraTargets, end, nodeIndex, edgeIndex, edge, edge.widthEnd, edge.opacityEnd, edge.arrowEnd, true);
     }
 
     if (edge.arrowStart) {
@@ -374,13 +481,19 @@
     }
   }
 
+  /** Draws one { nodes, edges } level -- the top-level diagram, or (recursively, from drawNode) a node's nested `children`. */
+  function renderNodesAndEdges(p, nodes, edges, showLabels, depth) {
+    const nodeIndex = buildNodeIndex(nodes);
+    const edgeIndex = buildEdgeIndex(edges);
+    edges.forEach((e) => drawEdge(p, e, nodeIndex, edgeIndex));
+    nodes.forEach((n) => drawNode(p, n, showLabels, depth));
+  }
+
   /** Draws nodes/edges only -- caller owns clearing/filling the background. */
   function renderDiagramP5(p, diagram, options) {
     const showLabels = !options || options.showLabels !== false;
     p.push();
-    const nodeIndex = buildNodeIndex(diagram);
-    diagram.edges.forEach((e) => drawEdge(p, e, nodeIndex));
-    diagram.nodes.forEach((n) => drawNode(p, n, showLabels));
+    renderNodesAndEdges(p, diagram.nodes, diagram.edges, showLabels, 0);
     p.pop();
   }
 
@@ -426,9 +539,9 @@
     return { x, y, dist: Math.hypot(px - x, py - y) };
   }
 
-  /** Distance from (x,y) to a literal (non-node) endpoint ref, or null if `ref` is node-attached. */
-  function floatingEndpointDistance(nodeIndex, ref, x, y) {
-    const resolved = resolveEndpoint(nodeIndex, ref);
+  /** Distance from (x,y) to a literal or edge-attached (non-node) endpoint ref, or null if `ref` is node-attached. */
+  function floatingEndpointDistance(nodeIndex, edgeIndex, ownerEdgeId, ref, x, y) {
+    const resolved = resolveEndpoint(nodeIndex, edgeIndex, ref, new Set([ownerEdgeId]));
     if (!resolved || resolved.node) return null;
     return Math.hypot(x - resolved.point.x, y - resolved.point.y);
   }
@@ -436,12 +549,14 @@
   /**
    * The closest draggable part of any edge to diagram-space point (x,y),
    * within `threshold` pixels, or null. A floating (non-node) endpoint --
-   * `source`/`target`/an `extraSources`/`extraTargets` entry -- can be
-   * dragged directly; anywhere else along the path grabs the edge's bend
+   * `source`/`target`/an `extraSources`/`extraTargets` entry, whether a bare
+   * {x,y} point or a point attached to another edge -- can be dragged
+   * directly; anywhere else along the path grabs the edge's bend
    * (`edge.controlPoint`), the same way clicking a node grabs its position.
    */
   function hitTestEdge(diagram, x, y, threshold) {
-    const nodeIndex = buildNodeIndex(diagram);
+    const nodeIndex = buildNodeIndex(diagram.nodes);
+    const edgeIndex = buildEdgeIndex(diagram.edges);
     const endpointGrabRadius = Math.max(threshold, 10);
     let best = null;
     const consider = (dist, hit) => {
@@ -451,26 +566,22 @@
     };
 
     diagram.edges.forEach((edge) => {
-      const sourceResolved = resolveEndpoint(nodeIndex, edge.source);
-      const targetResolved = resolveEndpoint(nodeIndex, edge.target);
-      if (!sourceResolved || !targetResolved) return;
-      const start = endpointAnchor(sourceResolved, targetResolved.point, edge.sourceGap);
-      const end = endpointAnchor(targetResolved, sourceResolved.point, edge.targetGap);
+      const samples = edgeTrunkSamples(edge, nodeIndex, edgeIndex, new Set());
+      if (!samples) return;
 
-      let d = floatingEndpointDistance(nodeIndex, edge.source, x, y);
+      let d = floatingEndpointDistance(nodeIndex, edgeIndex, edge.id, edge.source, x, y);
       if (d !== null) consider(d, { edge, kind: 'endpoint', which: 'source' });
-      d = floatingEndpointDistance(nodeIndex, edge.target, x, y);
+      d = floatingEndpointDistance(nodeIndex, edgeIndex, edge.id, edge.target, x, y);
       if (d !== null) consider(d, { edge, kind: 'endpoint', which: 'target' });
       (edge.extraSources || []).forEach((ref, index) => {
-        const dd = floatingEndpointDistance(nodeIndex, ref, x, y);
+        const dd = floatingEndpointDistance(nodeIndex, edgeIndex, edge.id, ref, x, y);
         if (dd !== null) consider(dd, { edge, kind: 'extra', which: 'extraSources', index });
       });
       (edge.extraTargets || []).forEach((ref, index) => {
-        const dd = floatingEndpointDistance(nodeIndex, ref, x, y);
+        const dd = floatingEndpointDistance(nodeIndex, edgeIndex, edge.id, ref, x, y);
         if (dd !== null) consider(dd, { edge, kind: 'extra', which: 'extraTargets', index });
       });
 
-      const samples = edgeTrunkPoints(edge, start, end);
       for (let i = 0; i < samples.length - 1; i++) {
         const closest = closestPointOnSegment(x, y, samples[i], samples[i + 1]);
         consider(closest.dist, { edge, kind: 'bend' });
@@ -479,6 +590,30 @@
     return best;
   }
 
+  /**
+   * Closest point on any edge OTHER than `excludeEdgeId` to diagram-space
+   * point (x,y), within `threshold`, as { edgeId, t } -- or null. Used to
+   * snap a dropped edge endpoint onto another edge, turning it into an
+   * `{ edgeRef, t }` reference instead of a bare {x,y} point.
+   */
+  function findEdgeSnapTarget(diagram, x, y, threshold, excludeEdgeId) {
+    const nodeIndex = buildNodeIndex(diagram.nodes);
+    const edgeIndex = buildEdgeIndex(diagram.edges);
+    let best = null;
+    diagram.edges.forEach((edge) => {
+      if (edge.id === excludeEdgeId) return;
+      const samples = edgeTrunkSamples(edge, nodeIndex, edgeIndex, new Set());
+      if (!samples || samples.length < 2) return;
+      for (let i = 0; i < samples.length - 1; i++) {
+        const closest = closestPointOnSegment(x, y, samples[i], samples[i + 1]);
+        if (closest.dist <= threshold && (!best || closest.dist < best.dist)) {
+          best = { edgeId: edge.id, t: i / (samples.length - 1), dist: closest.dist };
+        }
+      }
+    });
+    return best;
+  }
+
   global.DG = global.DG || {};
-  Object.assign(global.DG, { renderDiagramP5, hitTestNode, hitTestEdge });
+  Object.assign(global.DG, { renderDiagramP5, hitTestNode, hitTestEdge, findEdgeSnapTarget });
 })(window);

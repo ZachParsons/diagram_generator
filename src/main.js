@@ -221,8 +221,29 @@
       p.redraw();
     };
 
+    // Dropping a floating edge endpoint close enough to another edge's own
+    // path re-attaches it there -- an { edgeRef, t } reference instead of a
+    // bare {x,y} point -- so edges can connect to other edges by drag, the
+    // same gesture that already moves a floating endpoint around.
+    function snapEdgeEndpointToEdge(state) {
+      const ref = state.kind === 'edgeExtra' ? state.edge[state.which][state.index] : state.edge[state.which];
+      if (!ref || typeof ref.x !== 'number') return;
+      const snap = DG.findEdgeSnapTarget(currentDiagram, ref.x, ref.y, 10 / (view.scale || 1), state.edge.id);
+      if (!snap) return;
+      const resolvedRef = { edgeRef: snap.edgeId, t: snap.t };
+      if (state.kind === 'edgeExtra') {
+        state.edge[state.which][state.index] = resolvedRef;
+      } else {
+        state.edge[state.which] = resolvedRef;
+      }
+    }
+
     function endDrag() {
       if (!dragState) return;
+      if (dragState.kind === 'edgeEndpoint' || dragState.kind === 'edgeExtra') {
+        snapEdgeEndpointToEdge(dragState);
+        p.redraw();
+      }
       dragState = null;
       p.canvas.classList.remove('dragging');
     }

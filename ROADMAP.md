@@ -13,7 +13,7 @@
 - [x] Rename the control panel's "Relationships (edges)" section to just "Edges".
 - [x] Fix shape clipping/inversion.
 - [x] Add a couple of screenshots to the README.
-- [ ] Edges should be able to connect to other edges, not just nodes.
-- [ ] Enable recursion -- nodes & edges inside a node -- and parameterize how often this occurs.
+- [x] Edges should be able to connect to other edges, not just nodes.
+- [x] Enable recursion -- nodes & edges inside a node -- and parameterize how often this occurs.
 - [ ] Library view of saved diagrams, shown in a grid, resumable for viewing or editing.
 - [ ] Generate a diagram from an input image -- guess at nodes, edges, sizes, shapes, and colors from it, e.g. by sampling random regions of the image for values.
