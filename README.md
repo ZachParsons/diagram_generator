@@ -24,6 +24,12 @@ shape; an edge bends by dragging anywhere along its path (this sets
 point rather than a node id -- can be dragged to reposition it directly.
 All of this is in-memory only and resets on the next Regenerate.
 
+Dragging empty canvas space pans the view instead; the scroll wheel zooms
+toward the cursor. The +/-/&#8634; buttons in the top-right corner zoom in,
+zoom out, and reset back to the fitted view. Pan/zoom persists across node
+edits and window resizes, but resets whenever a genuinely new diagram is
+loaded (Regenerate, or importing a diagram JSON).
+
 The table (nodes/edges as plain HTML tables, see `tableRenderer.js`) isn't
 a separate screen -- it's a drawer that slides up over the bottom of the
 canvas, toggled by the "Table" handle at the bottom of the main view, so

@@ -58,6 +58,7 @@
         params.useInputData && inputData
           ? DG.generateFromData(inputData, params)
           : DG.generateDiagram(params);
+      viewNeedsReset = true;
       renderCurrent();
       saveParams();
     } catch (err) {
@@ -74,29 +75,45 @@
 
   // --- p5 sketch (instance mode) ------------------------------------------
   // The canvas always fills sketch-container (the full viewport area next to
-  // the sidebar); the diagram's logical width/height (from params, fixed at
-  // generation time) is scaled+centered to fit inside it ("contain"), so the
-  // diagram is never confined to a small fixed-size box.
-  // While dragging: { kind: 'node', node, grabDX, grabDY }
+  // the sidebar). `view` is the diagram->canvas transform (screen = diagram
+  // * view.scale + view.offset*), initialized to "contain" (fit + centered)
+  // whenever a new diagram is set, then freely pannable/zoomable by the user
+  // from there -- see the mouseWheel/mousePressed/mouseDragged handlers and
+  // the zoom buttons below.
+  let view = null;
+  let viewNeedsReset = true;
+
+  // While dragging: { kind: 'pan', startX, startY, startOffsetX, startOffsetY }
+  //              | { kind: 'node', node, grabDX, grabDY }
   //              | { kind: 'edgeEndpoint', edge, which }        -- which: 'source' | 'target'
   //              | { kind: 'edgeExtra', edge, which, index }    -- which: 'extraSources' | 'extraTargets'
   //              | { kind: 'edgeBend', edge }
   let dragState = null;
 
-  function fitTransform(p) {
+  function initView(p) {
     const dw = currentDiagram.meta.width;
     const dh = currentDiagram.meta.height;
     const scale = Math.min(p.width / dw, p.height / dh) || 1;
-    return {
+    view = {
       scale,
       offsetX: (p.width - dw * scale) / 2,
       offsetY: (p.height - dh * scale) / 2,
+      baseScale: scale,
     };
+    viewNeedsReset = false;
   }
 
-  function toDiagramSpace(p, mx, my) {
-    const t = fitTransform(p);
-    return { x: (mx - t.offsetX) / t.scale, y: (my - t.offsetY) / t.scale };
+  function toDiagramSpace(sx, sy) {
+    return { x: (sx - view.offsetX) / view.scale, y: (sy - view.offsetY) / view.scale };
+  }
+
+  /** Zooms by `factor` around the fixed screen point (sx, sy), e.g. the cursor or canvas center. */
+  function zoomAround(sx, sy, factor) {
+    if (!view) return;
+    const before = toDiagramSpace(sx, sy);
+    view.scale = Math.min(view.baseScale * 8, Math.max(view.baseScale * 0.15, view.scale * factor));
+    view.offsetX = sx - before.x * view.scale;
+    view.offsetY = sy - before.y * view.scale;
   }
 
   function sketch(p) {
@@ -109,11 +126,11 @@
 
     p.draw = () => {
       if (!currentDiagram) return;
+      if (!view || viewNeedsReset) initView(p);
       p.background(currentDiagram.meta.background);
-      const t = fitTransform(p);
       p.push();
-      p.translate(t.offsetX, t.offsetY);
-      p.scale(t.scale);
+      p.translate(view.offsetX, view.offsetY);
+      p.scale(view.scale);
       DG.renderDiagramP5(p, currentDiagram);
       p.pop();
     };
@@ -122,9 +139,17 @@
       return p.mouseX >= 0 && p.mouseY >= 0 && p.mouseX <= p.width && p.mouseY <= p.height;
     }
 
+    p.mouseWheel = (event) => {
+      if (!currentDiagram || !view || !withinCanvas()) return;
+      const factor = Math.min(1.25, Math.max(0.8, Math.exp(-event.deltaY * 0.001)));
+      zoomAround(p.mouseX, p.mouseY, factor);
+      p.redraw();
+      return false; // prevent the page itself from scrolling
+    };
+
     p.mousePressed = () => {
-      if (!currentDiagram || !withinCanvas()) return;
-      const pt = toDiagramSpace(p, p.mouseX, p.mouseY);
+      if (!currentDiagram || !view || !withinCanvas()) return;
+      const pt = toDiagramSpace(p.mouseX, p.mouseY);
 
       const node = DG.hitTestNode(currentDiagram, pt.x, pt.y);
       if (node) {
@@ -134,16 +159,27 @@
       }
 
       // A grab threshold in diagram-space units, roughly matching a ~6px reach on screen.
-      const edgeHit = DG.hitTestEdge(currentDiagram, pt.x, pt.y, 6 / (fitTransform(p).scale || 1));
+      const edgeHit = DG.hitTestEdge(currentDiagram, pt.x, pt.y, 6 / (view.scale || 1));
       if (edgeHit) {
         dragState = { kind: edgeHit.kind === 'endpoint' ? 'edgeEndpoint' : edgeHit.kind === 'extra' ? 'edgeExtra' : 'edgeBend', edge: edgeHit.edge, which: edgeHit.which, index: edgeHit.index };
         p.canvas.classList.add('dragging');
+        return;
       }
+
+      // Empty space: pan the view instead of moving anything.
+      dragState = { kind: 'pan', startX: p.mouseX, startY: p.mouseY, startOffsetX: view.offsetX, startOffsetY: view.offsetY };
+      p.canvas.classList.add('dragging');
     };
 
     p.mouseDragged = () => {
       if (!dragState) return;
-      const pt = toDiagramSpace(p, p.mouseX, p.mouseY);
+      if (dragState.kind === 'pan') {
+        view.offsetX = dragState.startOffsetX + (p.mouseX - dragState.startX);
+        view.offsetY = dragState.startOffsetY + (p.mouseY - dragState.startY);
+        p.redraw();
+        return;
+      }
+      const pt = toDiagramSpace(p.mouseX, p.mouseY);
       if (dragState.kind === 'node') {
         dragState.node.x = pt.x - dragState.grabDX;
         dragState.node.y = pt.y - dragState.grabDY;
@@ -165,6 +201,23 @@
     p.mouseReleased = endDrag;
   }
   p5Instance = new p5(sketch);
+
+  // --- view controls (zoom in/out/reset) ------------------------------------
+  document.getElementById('zoom-in').addEventListener('click', () => {
+    if (!p5Instance || !view) return;
+    zoomAround(p5Instance.width / 2, p5Instance.height / 2, 1.25);
+    p5Instance.redraw();
+  });
+  document.getElementById('zoom-out').addEventListener('click', () => {
+    if (!p5Instance || !view) return;
+    zoomAround(p5Instance.width / 2, p5Instance.height / 2, 0.8);
+    p5Instance.redraw();
+  });
+  document.getElementById('zoom-reset').addEventListener('click', () => {
+    if (!p5Instance || !currentDiagram) return;
+    initView(p5Instance);
+    p5Instance.redraw();
+  });
 
   // Keep the canvas sized to its container (the viewport area beside the
   // sidebar) as the window resizes.
@@ -378,6 +431,7 @@
           return;
         }
         currentDiagram = parsed;
+        viewNeedsReset = true;
         renderCurrent();
         setStatus(`Loaded external diagram "${file.name}" (bypassing generator).`);
       } catch (err) {
