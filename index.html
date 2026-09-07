@@ -14,6 +14,12 @@
       <div id="pane-container"></div>
 
       <section class="panel">
+        <h2>Library</h2>
+        <button id="save-to-library">Save current diagram</button>
+        <button id="open-library">Open library&hellip;</button>
+      </section>
+
+      <section class="panel">
         <h2>Input data</h2>
         <label class="checkbox-row">
           <input type="checkbox" id="use-input-data" />
@@ -65,6 +71,16 @@
     </main>
   </div>
 
+  <div id="library-overlay" hidden>
+    <div id="library-panel">
+      <div id="library-header">
+        <h2>Library</h2>
+        <button id="library-close" type="button" title="Close">&times;</button>
+      </div>
+      <div id="library-grid"></div>
+    </div>
+  </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tweakpane@3.1.10/dist/tweakpane.min.js"></script>
 
@@ -75,6 +91,7 @@
   <script src="src/canvasRenderer.js"></script>
   <script src="src/tableRenderer.js"></script>
   <script src="src/controls.js"></script>
+  <script src="src/library.js"></script>
   <script src="data/sample-input.js"></script>
   <script src="src/main.js"></script>
 </body>

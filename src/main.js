@@ -559,5 +559,111 @@
     }
   });
 
+  // --- library: save/reload full diagrams (JSON + thumbnail) via DG.library, in a grid overlay ---
+  function elLib(tag, attrs, children) {
+    const node = document.createElement(tag);
+    Object.entries(attrs || {}).forEach(([k, v]) => {
+      if (k === 'text') node.textContent = v;
+      else if (k === 'class') node.className = v;
+      else node.setAttribute(k, v);
+    });
+    (children || []).forEach((c) => node.appendChild(c));
+    return node;
+  }
+
+  const libraryOverlay = document.getElementById('library-overlay');
+  const libraryGrid = document.getElementById('library-grid');
+  // Thumbnails are shown via createObjectURL(blob) -- these must be revoked
+  // whenever the grid is rebuilt or closed, or each open/rebuild leaks one
+  // blob URL per saved diagram for the life of the page.
+  let libraryThumbnailUrls = [];
+
+  function revokeLibraryThumbnailUrls() {
+    libraryThumbnailUrls.forEach((url) => URL.revokeObjectURL(url));
+    libraryThumbnailUrls = [];
+  }
+
+  function closeLibrary() {
+    libraryOverlay.hidden = true;
+    revokeLibraryThumbnailUrls();
+  }
+
+  async function renderLibraryGrid() {
+    const records = await DG.library.listDiagrams();
+    revokeLibraryThumbnailUrls();
+    libraryGrid.innerHTML = '';
+    if (!records.length) {
+      libraryGrid.appendChild(
+        elLib('p', { class: 'library-empty', text: 'No saved diagrams yet -- use "Save current diagram" in the sidebar.' })
+      );
+      return;
+    }
+    records.forEach((record) => {
+      const url = URL.createObjectURL(record.thumbnail);
+      libraryThumbnailUrls.push(url);
+
+      const loadBtn = elLib('button', { type: 'button', text: 'Load' });
+      loadBtn.addEventListener('click', () => {
+        // A deep copy -- editing the loaded diagram (dragging, table edits)
+        // must never mutate the record still sitting in the library.
+        currentDiagram = JSON.parse(JSON.stringify(record.diagram));
+        viewNeedsReset = true;
+        renderCurrent();
+        closeLibrary();
+        setStatus(`Loaded "${record.name}" from the library.`);
+      });
+
+      const renameBtn = elLib('button', { type: 'button', text: 'Rename' });
+      renameBtn.addEventListener('click', async () => {
+        const name = prompt('Rename diagram', record.name);
+        if (!name || name === record.name) return;
+        await DG.library.renameDiagram(record.id, name);
+        renderLibraryGrid();
+      });
+
+      const deleteBtn = elLib('button', { type: 'button', text: 'Delete' });
+      deleteBtn.addEventListener('click', async () => {
+        if (!confirm(`Delete "${record.name}" from the library? This can't be undone.`)) return;
+        await DG.library.deleteDiagram(record.id);
+        renderLibraryGrid();
+      });
+
+      libraryGrid.appendChild(
+        elLib('div', { class: 'library-card' }, [
+          elLib('img', { src: url, alt: record.name }),
+          elLib('div', { class: 'library-card-body' }, [
+            elLib('div', { class: 'library-card-name', text: record.name }),
+            elLib('div', { class: 'library-card-date', text: new Date(record.savedAt).toLocaleString() }),
+            elLib('div', { class: 'library-card-actions' }, [loadBtn, renameBtn, deleteBtn]),
+          ]),
+        ])
+      );
+    });
+  }
+
+  document.getElementById('save-to-library').addEventListener('click', async () => {
+    if (!currentDiagram) return;
+    const defaultName = `Diagram ${currentDiagram.meta.seed || ''}`.trim();
+    const name = prompt('Name this diagram', defaultName);
+    if (name === null) return; // cancelled
+    try {
+      await DG.library.saveDiagram(currentDiagram, name || defaultName);
+      setStatus(`Saved "${name || defaultName}" to the library.`);
+    } catch (err) {
+      setStatus(`Could not save to the library: ${err.message}`);
+    }
+  });
+
+  document.getElementById('open-library').addEventListener('click', () => {
+    libraryOverlay.hidden = false;
+    renderLibraryGrid();
+  });
+
+  document.getElementById('library-close').addEventListener('click', closeLibrary);
+  // Click on the dimmed backdrop (not the panel itself) also closes it.
+  libraryOverlay.addEventListener('click', (e) => {
+    if (e.target === libraryOverlay) closeLibrary();
+  });
+
   regenerate();
 })();
