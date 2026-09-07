@@ -142,6 +142,19 @@ jitter:
 - **quad**: 4 vertices, high jitter, straight edges -> rhombus/trapezoid/kite-like irregular quadrilaterals.
 - **blob**: 6-11 (configurable) vertices, highest jitter, smooth curve -> organic asymmetric blobs.
 
+A curved shape's jitter can be extreme enough that the smooth Catmull-Rom
+curve (which overshoots past its control points) loops back on itself --
+a thin, unfilled, "bug-like" self-intersection. `irregularPoints()` guards
+against this without flattening out the organic look: it samples the same
+curve `canvasRenderer.js` will render and checks it for self-intersection;
+if a given random draw crosses itself, it just re-rolls (independent
+re-rolls are very likely to come out clean, since the previous draw was an
+unlucky outlier, not a systemic issue) up to a bounded number of times,
+falling back to progressively relaxing the last attempt in the rare case
+every re-roll still crosses. Straight-edged shapes (triangle/quad) skip
+this entirely -- they can't overshoot, so the angle-jitter cap alone
+already prevents them from crossing themselves.
+
 Renderers don't know any of this -- `canvasRenderer.js` only looks at
 `points` and `curved` and draws a closed straight path or a closed
 Catmull-Rom curve. Anything that fills in `points`/`curved` in the schema

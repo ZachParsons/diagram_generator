@@ -43,16 +43,86 @@
   // distinct kind of shape while never collapsing into a regular/symmetric
   // one (see SHAPE_FAMILY comment below for why there's always a floor).
   const SHAPE_FAMILY = {
-    oval: { vertices: () => 7, angleJitter: 0.1, radiusJitter: 0.16, curved: true },
+    oval: { vertices: () => 7, angleJitter: 0.1, radiusJitter: 0.2, curved: true },
     triangle: { vertices: () => 3, angleJitter: 0.32, radiusJitter: 0.45, curved: false },
     quad: { vertices: () => 4, angleJitter: 0.28, radiusJitter: 0.4, curved: false },
     blob: {
       vertices: (rng, params) => rng.int(params.blobPointsMin, params.blobPointsMax),
       angleJitter: 0.22,
-      radiusJitter: 0.55,
+      // Higher than the other families -- blobs are meant to read as the
+      // most organic/cavitated shape -- safe because irregularPoints()
+      // hard-caps the neighbor-to-neighbor radius ratio for curved
+      // families, which is what actually prevents the self-intersection
+      // artifact regardless of how high this goes.
+      radiusJitter: 0.9,
       curved: true,
     },
   };
+
+  /** True if segments p1->p2 and p3->p4 cross (sharing an endpoint doesn't count as crossing). */
+  function segmentsIntersect(p1, p2, p3, p4) {
+    const ccw = (a, b, c) => (c.y - a.y) * (b.x - a.x) > (b.y - a.y) * (c.x - a.x);
+    return ccw(p1, p3, p4) !== ccw(p2, p3, p4) && ccw(p1, p2, p3) !== ccw(p1, p2, p4);
+  }
+
+  /** Point at parameter t in [0,1] between p1 and p2 on a uniform Catmull-Rom spline through p0,p1,p2,p3. */
+  function catmullRomPoint(p0, p1, p2, p3, t) {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    const c = (a, b, c2, d) => 0.5 * (2 * b + (-a + c2) * t + (2 * a - 5 * b + 4 * c2 - d) * t2 + (-a + 3 * b - 3 * c2 + d) * t3);
+    return { x: c(p0.x, p1.x, p2.x, p3.x), y: c(p0.y, p1.y, p2.y, p3.y) };
+  }
+
+  /** Samples the closed Catmull-Rom curve canvasRenderer.js actually draws through `points`. */
+  function sampleClosedCurve(points, samplesPerSegment) {
+    const n = points.length;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const p0 = points[(i - 1 + n) % n];
+      const p1 = points[i];
+      const p2 = points[(i + 1) % n];
+      const p3 = points[(i + 2) % n];
+      for (let s = 0; s < samplesPerSegment; s++) {
+        out.push(catmullRomPoint(p0, p1, p2, p3, s / samplesPerSegment));
+      }
+    }
+    return out;
+  }
+
+  /**
+   * True if the closed curve through `points` crosses itself anywhere. Tests
+   * the same Catmull-Rom curve canvasRenderer.js renders (sampled finely),
+   * not just the straight-line control polygon -- the curve overshoots past
+   * its control points, so it can loop back on itself even when the control
+   * polygon itself doesn't cross.
+   */
+  function curveSelfIntersects(points) {
+    const samplesPerSegment = 8;
+    const curve = sampleClosedCurve(points, samplesPerSegment);
+    const n = curve.length;
+    // Segments within this many samples of each other along the curve are
+    // part of the same smooth bend and can sit close together without it
+    // being a real crossing -- only flag genuinely distant segments.
+    const skipWindow = samplesPerSegment + 2;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 2; j < n; j++) {
+        const gap = Math.min(j - i, n - (j - i));
+        if (gap <= skipWindow) continue;
+        if (segmentsIntersect(curve[i], curve[(i + 1) % n], curve[j], curve[(j + 1) % n])) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Nudges every point toward the average of its two neighbors -- a generic, angle-agnostic smoothing pass. */
+  function relaxPoints(points) {
+    const n = points.length;
+    return points.map((pt, i) => {
+      const prev = points[(i - 1 + n) % n];
+      const next = points[(i + 1) % n];
+      return { x: pt.x * 0.5 + (prev.x + next.x) * 0.25, y: pt.y * 0.5 + (prev.y + next.y) * 0.25 };
+    });
+  }
 
   /**
    * Vertices around an ellipse of half-axes (w/2, h/2), each pushed off its
@@ -63,27 +133,53 @@
    * read as asymmetric, never as circles/equilateral triangles/rhombi-by-
    * accident-of-symmetry.
    */
-  function irregularPoints(rng, n, w, h, angleJitterFrac, radiusJitterFrac) {
+  function irregularPoints(rng, n, w, h, angleJitterFrac, radiusJitterFrac, curved) {
     const rx = w / 2;
     const ry = h / 2;
     const step = (Math.PI * 2) / n;
     // Cap jitter well under half a step so vertices can't cross their neighbors' base angle.
     const angleJitter = Math.min(angleJitterFrac, 0.42) * step;
-    const radiusJitter = Math.min(radiusJitterFrac, 0.7);
-    const points = [];
-    for (let i = 0; i < n; i++) {
-      const angle = i * step + rng.range(-angleJitter, angleJitter);
-      const radiusScale = 1 + rng.range(-radiusJitter, radiusJitter);
-      points.push({ x: Math.cos(angle) * rx * radiusScale, y: Math.sin(angle) * ry * radiusScale });
+    const radiusJitter = Math.min(radiusJitterFrac, 1.2);
+
+    function sample() {
+      const points = [];
+      for (let i = 0; i < n; i++) {
+        const angle = i * step + rng.range(-angleJitter, angleJitter);
+        const radiusScale = 1 + rng.range(-radiusJitter, radiusJitter);
+        points.push({ x: Math.cos(angle) * rx * radiusScale, y: Math.sin(angle) * ry * radiusScale });
+      }
+      return points;
     }
-    return points;
+
+    if (!curved) return sample(); // straight-edged: the angle cap alone already prevents crossing
+
+    // A curved outline (Catmull-Rom, see drawCurvedClosed in
+    // canvasRenderer.js) overshoots past its control points, and an
+    // extreme jitter combination can make the curve loop back on itself --
+    // a thin, unfilled, "bug-like" self-intersection. Rather than damping
+    // the jitter itself (which would flatten out the deep, organic dents
+    // that make blobs interesting), just re-roll: a fresh independent
+    // sample is very likely to come out clean, so this preserves full
+    // jitter range/character for every shape that doesn't actually have
+    // the problem. Only in the rare case every attempt still crosses
+    // itself does it fall back to progressively relaxing the last attempt
+    // until it's clean, which is guaranteed to terminate (relaxing enough
+    // times converges toward a convex, non-self-intersecting shape).
+    let candidate = sample();
+    for (let attempt = 1; attempt < 12 && curveSelfIntersects(candidate); attempt++) {
+      candidate = sample();
+    }
+    for (let relax = 0; relax < 8 && curveSelfIntersects(candidate); relax++) {
+      candidate = relaxPoints(candidate);
+    }
+    return candidate;
   }
 
   function shapeGeometry(shape, w, h, params, rng) {
     const family = SHAPE_FAMILY[shape] || SHAPE_FAMILY.blob;
     const jitterAmp = 0.5 + params.irregularity; // never fully regular, scales up to 1.5x with the slider
     const n = family.vertices(rng, params);
-    const points = irregularPoints(rng, n, w, h, family.angleJitter * jitterAmp, family.radiusJitter * jitterAmp);
+    const points = irregularPoints(rng, n, w, h, family.angleJitter * jitterAmp, family.radiusJitter * jitterAmp, family.curved);
     return { points, curved: family.curved };
   }
 
