@@ -112,33 +112,13 @@ button:hover {
 
 #main {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  position: relative;
-}
-
-#view-toggle {
-  display: flex;
-  gap: 8px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
-  z-index: 1;
-}
-
-#view-toggle button.active {
-  background: var(--accent);
-  color: #06131f;
-  border-color: var(--accent);
-}
-
-#sketch-container,
-#table-container {
-  flex: 1;
-  min-height: 0;
   position: relative;
   overflow: hidden;
+}
+
+#sketch-container {
+  position: absolute;
+  inset: 0;
 }
 
 #sketch-container canvas {
@@ -150,10 +130,65 @@ button:hover {
   cursor: grabbing;
 }
 
+/* A bottom drawer overlaying the canvas -- collapsed, only its handle
+   (#table-drawer-toggle) shows; .expanded slides the table fully into view.
+   The canvas is never resized by this since the drawer overlays it rather
+   than sharing layout space with it. */
+#table-drawer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 60%;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+  transform: translateY(calc(100% - 40px));
+  transition: transform 0.2s ease;
+}
+
+#table-drawer.expanded {
+  transform: translateY(0);
+}
+
+#table-drawer-toggle {
+  flex-shrink: 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+#table-drawer-toggle:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+
+#table-drawer-toggle .chevron {
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+#table-drawer.expanded #table-drawer-toggle .chevron {
+  transform: rotate(180deg);
+}
+
 #table-container {
   background: var(--panel);
   padding: 12px;
   overflow: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 #table-container h3 {
@@ -191,8 +226,4 @@ button:hover {
   border-radius: 3px;
   vertical-align: middle;
   border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.hidden {
-  display: none !important;
 }

@@ -39,7 +39,6 @@
   const params = loadParams();
   let currentDiagram = null;
   let inputData = loadInputData();
-  let currentView = 'canvas';
   let p5Instance = null;
 
   const sketchContainer = document.getElementById('sketch-container');
@@ -70,9 +69,7 @@
   function renderCurrent() {
     if (!currentDiagram) return;
     if (p5Instance) p5Instance.redraw();
-    if (currentView === 'table') {
-      DG.renderDiagramTable(tableContainer, currentDiagram);
-    }
+    DG.renderDiagramTable(tableContainer, currentDiagram);
   }
 
   // --- p5 sketch (instance mode) ------------------------------------------
@@ -126,7 +123,7 @@
     }
 
     p.mousePressed = () => {
-      if (!currentDiagram || currentView !== 'canvas' || !withinCanvas()) return;
+      if (!currentDiagram || !withinCanvas()) return;
       const pt = toDiagramSpace(p, p.mouseX, p.mouseY);
 
       const node = DG.hitTestNode(currentDiagram, pt.x, pt.y);
@@ -181,15 +178,22 @@
     }
   }).observe(sketchContainer);
 
-  // --- view toggle -------------------------------------------------------
-  document.querySelectorAll('#view-toggle button').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      currentView = btn.dataset.view;
-      document.querySelectorAll('#view-toggle button').forEach((b) => b.classList.toggle('active', b === btn));
-      sketchContainer.classList.toggle('hidden', currentView !== 'canvas');
-      tableContainer.classList.toggle('hidden', currentView !== 'table');
-      renderCurrent();
-    });
+  // --- table drawer --------------------------------------------------------
+  // The table is a collapsible drawer overlaying the bottom of the canvas
+  // (rather than a separate full-screen view), so both are visible/usable
+  // at once; it's kept up to date continuously (renderCurrent() above always
+  // renders it) so expanding it never shows stale data.
+  const TABLE_EXPANDED_KEY = 'diagram-generator:tableExpanded';
+  const tableDrawer = document.getElementById('table-drawer');
+  const tableDrawerToggle = document.getElementById('table-drawer-toggle');
+  tableDrawer.classList.toggle('expanded', localStorage.getItem(TABLE_EXPANDED_KEY) === 'true');
+  tableDrawerToggle.addEventListener('click', () => {
+    const expanded = tableDrawer.classList.toggle('expanded');
+    try {
+      localStorage.setItem(TABLE_EXPANDED_KEY, String(expanded));
+    } catch (err) {
+      // Ignore -- persistence is a convenience, not required.
+    }
   });
 
   // --- controls panel ------------------------------------------------------

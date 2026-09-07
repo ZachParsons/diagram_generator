@@ -42,12 +42,13 @@
     </aside>
 
     <main id="main">
-      <div id="view-toggle">
-        <button data-view="canvas" class="active">Canvas</button>
-        <button data-view="table">Table</button>
-      </div>
       <div id="sketch-container"></div>
-      <div id="table-container" class="hidden"></div>
+      <div id="table-drawer">
+        <button id="table-drawer-toggle" type="button">
+          <span class="chevron">&#9650;</span> Table
+        </button>
+        <div id="table-container"></div>
+      </div>
     </main>
   </div>
 

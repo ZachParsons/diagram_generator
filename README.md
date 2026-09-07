@@ -17,12 +17,18 @@ open index.html
 `python3 -m http.server 8000` from this directory, then visit
 `http://localhost:8000`.)
 
-In the Canvas view you can drag things directly: a node moves by dragging
-its shape; an edge bends by dragging anywhere along its path (this sets
+In the canvas you can drag things directly: a node moves by dragging its
+shape; an edge bends by dragging anywhere along its path (this sets
 `controlPoint`, see below); and a floating (non-node) edge endpoint --
 `source`/`target`/an `extraSources`/`extraTargets` entry that's a literal
 point rather than a node id -- can be dragged to reposition it directly.
 All of this is in-memory only and resets on the next Regenerate.
+
+The table (nodes/edges as plain HTML tables, see `tableRenderer.js`) isn't
+a separate screen -- it's a drawer that slides up over the bottom of the
+canvas, toggled by the "Table" handle at the bottom of the main view, so
+you can have both visible at once. It stays up to date continuously, so
+expanding it never shows stale data.
 
 ## Architecture
 
@@ -200,7 +206,9 @@ import/paste your own `{ nodes: [...] }` JSON.
   the `layout` dropdown options in `controls.js`.
 - **New visualizer**: write a function `(diagram) => void` that only
   reads the schema above -- see `tableRenderer.js` for the minimal
-  example -- and wire a view-toggle button for it in `main.js`.
+  example -- and give it a spot in `index.html`/`main.js` (as its own
+  drawer, alongside the table, or however it should coexist with the
+  canvas).
 - **New relationship types**: containment/alignment/grouping (rather than
   a line between two points) could be added as a parallel array in the
   schema (e.g. `diagram.groups`) without touching the node/edge contract.
