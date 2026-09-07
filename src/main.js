@@ -80,7 +80,11 @@
   // the sidebar); the diagram's logical width/height (from params, fixed at
   // generation time) is scaled+centered to fit inside it ("contain"), so the
   // diagram is never confined to a small fixed-size box.
-  let dragState = null; // { node, grabDX, grabDY } while a node is being dragged
+  // While dragging: { kind: 'node', node, grabDX, grabDY }
+  //              | { kind: 'edgeEndpoint', edge, which }        -- which: 'source' | 'target'
+  //              | { kind: 'edgeExtra', edge, which, index }    -- which: 'extraSources' | 'extraTargets'
+  //              | { kind: 'edgeBend', edge }
+  let dragState = null;
 
   function fitTransform(p) {
     const dw = currentDiagram.meta.width;
@@ -124,9 +128,18 @@
     p.mousePressed = () => {
       if (!currentDiagram || currentView !== 'canvas' || !withinCanvas()) return;
       const pt = toDiagramSpace(p, p.mouseX, p.mouseY);
+
       const node = DG.hitTestNode(currentDiagram, pt.x, pt.y);
       if (node) {
-        dragState = { node, grabDX: pt.x - node.x, grabDY: pt.y - node.y };
+        dragState = { kind: 'node', node, grabDX: pt.x - node.x, grabDY: pt.y - node.y };
+        p.canvas.classList.add('dragging');
+        return;
+      }
+
+      // A grab threshold in diagram-space units, roughly matching a ~6px reach on screen.
+      const edgeHit = DG.hitTestEdge(currentDiagram, pt.x, pt.y, 6 / (fitTransform(p).scale || 1));
+      if (edgeHit) {
+        dragState = { kind: edgeHit.kind === 'endpoint' ? 'edgeEndpoint' : edgeHit.kind === 'extra' ? 'edgeExtra' : 'edgeBend', edge: edgeHit.edge, which: edgeHit.which, index: edgeHit.index };
         p.canvas.classList.add('dragging');
       }
     };
@@ -134,8 +147,16 @@
     p.mouseDragged = () => {
       if (!dragState) return;
       const pt = toDiagramSpace(p, p.mouseX, p.mouseY);
-      dragState.node.x = pt.x - dragState.grabDX;
-      dragState.node.y = pt.y - dragState.grabDY;
+      if (dragState.kind === 'node') {
+        dragState.node.x = pt.x - dragState.grabDX;
+        dragState.node.y = pt.y - dragState.grabDY;
+      } else if (dragState.kind === 'edgeEndpoint') {
+        dragState.edge[dragState.which] = { x: pt.x, y: pt.y };
+      } else if (dragState.kind === 'edgeExtra') {
+        dragState.edge[dragState.which][dragState.index] = { x: pt.x, y: pt.y };
+      } else if (dragState.kind === 'edgeBend') {
+        dragState.edge.controlPoint = { x: pt.x, y: pt.y };
+      }
       p.redraw();
     };
 

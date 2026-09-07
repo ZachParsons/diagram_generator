@@ -42,6 +42,9 @@
  *       sourceGap, targetGap,      // extra pixels pulled back from a node's edge
  *                                  // (negative = overshoot into the node); ignored
  *                                  // for a literal-point (floating) endpoint
+ *       controlPoint,              // optional {x,y} -- when present, overrides `style`
+ *                                  // and bends the trunk through this exact point (set
+ *                                  // by dragging the edge in the canvas view)
  *       label
  *     }, ...
  *   ]

@@ -167,6 +167,16 @@
     return style === 'curved' ? sampleQuadraticBezier(control, PATH_SAMPLES) : resamplePolyline(control, PATH_SAMPLES);
   }
 
+  /**
+   * The points an edge's trunk actually follows: a user-dragged
+   * `controlPoint` always wins (as a single bezier control point,
+   * overriding `style`) since dragging an edge is how a bend gets set in
+   * the first place; otherwise it's just `samplePath(edge.style, ...)`.
+   */
+  function edgeTrunkPoints(edge, start, end) {
+    return edge.controlPoint ? sampleQuadraticBezier([start, edge.controlPoint, end], PATH_SAMPLES) : samplePath(edge.style, start, end);
+  }
+
   function lerp(a, b, t) {
     return a + (b - a) * t;
   }
@@ -199,7 +209,7 @@
    * can point arrowheads along the true path direction at each end.
    */
   function drawTrunk(p, edge, start, end) {
-    const samples = samplePath(edge.style, start, end);
+    const samples = edgeTrunkPoints(edge, start, end);
     const n = samples.length;
     const cum = [0];
     for (let i = 1; i < n; i++) {
@@ -334,6 +344,70 @@
     return null;
   }
 
+  /** Closest point to (px,py) on segment a-b, and the distance to it. */
+  function closestPointOnSegment(px, py, a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((px - a.x) * dx + (py - a.y) * dy) / lenSq));
+    const x = a.x + dx * t;
+    const y = a.y + dy * t;
+    return { x, y, dist: Math.hypot(px - x, py - y) };
+  }
+
+  /** Distance from (x,y) to a literal (non-node) endpoint ref, or null if `ref` is node-attached. */
+  function floatingEndpointDistance(nodeIndex, ref, x, y) {
+    const resolved = resolveEndpoint(nodeIndex, ref);
+    if (!resolved || resolved.node) return null;
+    return Math.hypot(x - resolved.point.x, y - resolved.point.y);
+  }
+
+  /**
+   * The closest draggable part of any edge to diagram-space point (x,y),
+   * within `threshold` pixels, or null. A floating (non-node) endpoint --
+   * `source`/`target`/an `extraSources`/`extraTargets` entry -- can be
+   * dragged directly; anywhere else along the path grabs the edge's bend
+   * (`edge.controlPoint`), the same way clicking a node grabs its position.
+   */
+  function hitTestEdge(diagram, x, y, threshold) {
+    const nodeIndex = buildNodeIndex(diagram);
+    const endpointGrabRadius = Math.max(threshold, 10);
+    let best = null;
+    const consider = (dist, hit) => {
+      if (dist <= (hit.kind === 'bend' ? threshold : endpointGrabRadius) && (!best || dist < best.dist)) {
+        best = { ...hit, dist };
+      }
+    };
+
+    diagram.edges.forEach((edge) => {
+      const sourceResolved = resolveEndpoint(nodeIndex, edge.source);
+      const targetResolved = resolveEndpoint(nodeIndex, edge.target);
+      if (!sourceResolved || !targetResolved) return;
+      const start = endpointAnchor(sourceResolved, targetResolved.point, edge.sourceGap);
+      const end = endpointAnchor(targetResolved, sourceResolved.point, edge.targetGap);
+
+      let d = floatingEndpointDistance(nodeIndex, edge.source, x, y);
+      if (d !== null) consider(d, { edge, kind: 'endpoint', which: 'source' });
+      d = floatingEndpointDistance(nodeIndex, edge.target, x, y);
+      if (d !== null) consider(d, { edge, kind: 'endpoint', which: 'target' });
+      (edge.extraSources || []).forEach((ref, index) => {
+        const dd = floatingEndpointDistance(nodeIndex, ref, x, y);
+        if (dd !== null) consider(dd, { edge, kind: 'extra', which: 'extraSources', index });
+      });
+      (edge.extraTargets || []).forEach((ref, index) => {
+        const dd = floatingEndpointDistance(nodeIndex, ref, x, y);
+        if (dd !== null) consider(dd, { edge, kind: 'extra', which: 'extraTargets', index });
+      });
+
+      const samples = edgeTrunkPoints(edge, start, end);
+      for (let i = 0; i < samples.length - 1; i++) {
+        const closest = closestPointOnSegment(x, y, samples[i], samples[i + 1]);
+        consider(closest.dist, { edge, kind: 'bend' });
+      }
+    });
+    return best;
+  }
+
   global.DG = global.DG || {};
-  Object.assign(global.DG, { renderDiagramP5, hitTestNode });
+  Object.assign(global.DG, { renderDiagramP5, hitTestNode, hitTestEdge });
 })(window);

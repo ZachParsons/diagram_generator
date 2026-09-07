@@ -17,6 +17,13 @@ open index.html
 `python3 -m http.server 8000` from this directory, then visit
 `http://localhost:8000`.)
 
+In the Canvas view you can drag things directly: a node moves by dragging
+its shape; an edge bends by dragging anywhere along its path (this sets
+`controlPoint`, see below); and a floating (non-node) edge endpoint --
+`source`/`target`/an `extraSources`/`extraTargets` entry that's a literal
+point rather than a node id -- can be dragged to reposition it directly.
+All of this is in-memory only and resets on the next Regenerate.
+
 ## Architecture
 
 ```
