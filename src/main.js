@@ -202,6 +202,7 @@
     onRegenerate: regenerate,
     onExportJSON: exportDiagramJSON,
     onExportPNG: exportPNG,
+    onExportBoth: exportBoth,
   });
 
   // --- export --------------------------------------------------------------
@@ -227,6 +228,13 @@
     if (!p5Instance) return;
     p5Instance.saveCanvas(`diagram-${params.seed}`, 'png');
     setStatus('Exported PNG.');
+  }
+
+  function exportBoth() {
+    if (!currentDiagram || !p5Instance) return;
+    exportDiagramJSON();
+    exportPNG();
+    setStatus('Exported diagram JSON + PNG.');
   }
 
   // --- import: a diagram JSON produced by this tool (or another one) ------

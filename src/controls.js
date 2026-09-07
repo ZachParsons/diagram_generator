@@ -111,8 +111,9 @@
     // pixel-identical output and look like the button did nothing.
     const actions = pane.addFolder({ title: 'Actions' });
     actions.addButton({ title: 'Regenerate' }).on('click', rerollSeed);
-    actions.addButton({ title: 'Export diagram JSON' }).on('click', () => callbacks.onExportJSON());
-    actions.addButton({ title: 'Export PNG' }).on('click', () => callbacks.onExportPNG());
+    actions.addButton({ title: 'Export JSON + PNG' }).on('click', () => callbacks.onExportBoth());
+    actions.addButton({ title: 'Export diagram JSON only' }).on('click', () => callbacks.onExportJSON());
+    actions.addButton({ title: 'Export PNG only' }).on('click', () => callbacks.onExportPNG());
 
     return pane;
   }
