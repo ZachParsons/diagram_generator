@@ -36,6 +36,20 @@
       </section>
 
       <section class="panel">
+        <h2>Image data</h2>
+        <label class="checkbox-row">
+          <input type="checkbox" id="use-image-data" />
+          Generate from an image instead of pure random
+        </label>
+        <label class="file-row">
+          Import image
+          <input type="file" id="import-image-file" accept="image/*" />
+        </label>
+        <p class="hint">Guesses node positions, colors, and edges by sampling regions of the image; size/shape stay under the usual Node/Edge controls.</p>
+        <div class="status" id="image-status"></div>
+      </section>
+
+      <section class="panel">
         <h2>Diagram file</h2>
         <label class="file-row">
           Import diagram JSON

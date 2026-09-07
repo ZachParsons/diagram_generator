@@ -146,6 +146,11 @@
       recursionMaxChildren: 4,
 
       useInputData: false,
+      // When on (and an image has been loaded this session -- see
+      // main.js's loadImageFile()), generateFromImage() drives node
+      // position/color/edges instead of pure random or useInputData.
+      // Takes priority over useInputData if both are on.
+      useImageData: false,
     };
   }
 

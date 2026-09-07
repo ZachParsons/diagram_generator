@@ -385,7 +385,13 @@
     }
   }
 
-  function generateRandomEdges(nodes, params, rng) {
+  /**
+   * `pairProbability(i, j)`, when given, overrides `params.edgeProbability`
+   * for 'random'-mode pairs -- this is the seam generateFromImage() uses to
+   * "guess" edges from color similarity instead of pure chance, without
+   * duplicating everything else here (branches, self-loops, floating edges).
+   */
+  function generateRandomEdges(nodes, params, rng, pairProbability) {
     const edges = [];
     let n = 0;
     if (params.edgeMode !== 'none' && nodes.length >= 2) {
@@ -402,7 +408,8 @@
       } else if (params.edgeMode === 'random') {
         for (let i = 0; i < nodes.length; i++) {
           for (let j = i + 1; j < nodes.length; j++) {
-            if (rng.bool(params.edgeProbability)) push(nodes[i].id, nodes[j].id);
+            const p = pairProbability ? pairProbability(i, j) : params.edgeProbability;
+            if (rng.bool(p)) push(nodes[i].id, nodes[j].id);
           }
         }
       }
@@ -563,6 +570,166 @@
     return diagram;
   }
 
+  // --- image-driven generation ----------------------------------------------
+  // Turns a raw image (see main.js's loadImageFile()) into a diagram whose
+  // node positions, colors, and edges are "guessed" from it rather than
+  // drawn from the usual style params: positions favor spots with the most
+  // local visual detail (a cheap luminance-contrast stand-in for "where the
+  // interesting stuff is"), colors come from averaging small random samples
+  // within each node's own region -- the literal "sampling random regions
+  // of the image for values" -- and edges connect nodes whose sampled
+  // colors are similar rather than forming by pure chance. Node count/size/
+  // shape/rotation randomization is otherwise identical to generateDiagram().
+
+  function rgbToHsl(r, g, b) {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    let h = 0;
+    let s = 0;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60;
+    }
+    return { h, s: s * 100, l: l * 100 };
+  }
+
+  /** Average color of `samples` random points within `w` x `h` of (cx, cy) in image space (clamped to the image's bounds), as HSL. */
+  function sampleRegionColor(image, cx, cy, w, h, rng, samples) {
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    for (let i = 0; i < samples; i++) {
+      const x = Math.min(image.width - 1, Math.max(0, Math.round(cx + rng.range(-w / 2, w / 2))));
+      const y = Math.min(image.height - 1, Math.max(0, Math.round(cy + rng.range(-h / 2, h / 2))));
+      const idx = (y * image.width + x) * 4;
+      r += image.data[idx];
+      g += image.data[idx + 1];
+      b += image.data[idx + 2];
+    }
+    return rgbToHsl(r / samples, g / samples, b / samples);
+  }
+
+  /** A coarse `cols` x `rows` grid of "visual interest" -- how much a cell's average luminance differs from its neighbors', a cheap stand-in for edge/detail density. */
+  function computeImportanceMap(image, cols, rows) {
+    const cellW = image.width / cols;
+    const cellH = image.height / rows;
+    const lum = new Float32Array(cols * rows);
+    for (let cy = 0; cy < rows; cy++) {
+      for (let cx = 0; cx < cols; cx++) {
+        const x = Math.min(image.width - 1, Math.floor((cx + 0.5) * cellW));
+        const y = Math.min(image.height - 1, Math.floor((cy + 0.5) * cellH));
+        const idx = (y * image.width + x) * 4;
+        lum[cy * cols + cx] = 0.2126 * image.data[idx] + 0.7152 * image.data[idx + 1] + 0.0722 * image.data[idx + 2];
+      }
+    }
+    const importance = new Float32Array(cols * rows);
+    const neighbors = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (let cy = 0; cy < rows; cy++) {
+      for (let cx = 0; cx < cols; cx++) {
+        let diff = 0;
+        let n = 0;
+        neighbors.forEach(([dx, dy]) => {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx >= 0 && nx < cols && ny >= 0 && ny < rows) {
+            diff += Math.abs(lum[cy * cols + cx] - lum[ny * cols + nx]);
+            n++;
+          }
+        });
+        importance[cy * cols + cx] = n ? diff / n : 0;
+      }
+    }
+    return { importance, cols, rows, cellW, cellH };
+  }
+
+  /** One image-space {x,y}, weighted-random toward higher-importance cells -- a flat floor on every cell's weight keeps even a uniform image spreading nodes out instead of collapsing onto one spot. */
+  function pickImportancePosition(map, rng) {
+    const weights = Array.from(map.importance, (v) => v + 6);
+    const total = weights.reduce((a, b) => a + b, 0);
+    let target = rng.range(0, total);
+    let idx = weights.length - 1;
+    for (let i = 0; i < weights.length; i++) {
+      target -= weights[i];
+      if (target <= 0) {
+        idx = i;
+        break;
+      }
+    }
+    const cx = idx % map.cols;
+    const cy = Math.floor(idx / map.cols);
+    return { x: (cx + rng.range(0.2, 0.8)) * map.cellW, y: (cy + rng.range(0.2, 0.8)) * map.cellH };
+  }
+
+  /** Roughly 0 (near-identical) to ~1.7 (opposite) -- hue distance is circular, so it's capped at 180 degrees apart rather than 360. */
+  function hslDistance(a, b) {
+    let dh = Math.abs(a.h - b.h);
+    if (dh > 180) dh = 360 - dh;
+    return Math.hypot(dh / 180, (a.l - b.l) / 100, (a.s - b.s) / 100);
+  }
+
+  /** `image`: { width, height, data } -- an RGBA Uint8ClampedArray, e.g. from a canvas's ImageData (see main.js's loadImageFile()). */
+  function generateFromImage(image, params) {
+    const rng = new DG.SeededRNG(params.seed);
+    const diagram = DG.createEmptyDiagram({
+      seed: params.seed,
+      width: params.width,
+      height: params.height,
+      background: params.background,
+    });
+
+    const importanceMap = computeImportanceMap(image, 40, 30);
+    const sampledColors = [];
+
+    for (let i = 0; i < params.nodeCount; i++) {
+      const shape = pickShape(params, rng);
+      const sizeTier = pickSizeTier(rng, params);
+      const w = tieredRange(rng, params.sizeMin, params.sizeMax, sizeTier);
+      const h = tieredRange(rng, params.sizeMin, params.sizeMax, sizeTier);
+
+      const imgPos = pickImportancePosition(importanceMap, rng);
+      const pos = { x: (imgPos.x / image.width) * params.width, y: (imgPos.y / image.height) * params.height };
+      const regionW = Math.max(2, (w / params.width) * image.width);
+      const regionH = Math.max(2, (h / params.height) * image.height);
+      const hsl = sampleRegionColor(image, imgPos.x, imgPos.y, regionW, regionH, rng, 10);
+      sampledColors.push(hsl);
+
+      const fillA = rng.range(params.fillOpacityMin, params.fillOpacityMax);
+      const geometry = shapeGeometry(shape, w, h, params, rng);
+      diagram.nodes.push({
+        id: `n${i}`,
+        label: `N${i}`,
+        group: null,
+        shape,
+        x: pos.x,
+        y: pos.y,
+        w,
+        h,
+        points: geometry.points,
+        curved: geometry.curved,
+        rotation: params.rotationRandom ? rng.range(0, Math.PI * 2) : 0,
+        fill: hslString(hsl.h, hsl.s, hsl.l, fillA),
+        fillOpacity: fillA,
+      });
+    }
+
+    // Edges are "guessed" by color similarity rather than pure chance --
+    // nodes sampled from visually similar regions of the image are more
+    // likely to end up connected than two arbitrary nodes would be.
+    diagram.edges = generateRandomEdges(diagram.nodes, params, rng, (i, j) => {
+      const similarity = Math.max(0, 1 - hslDistance(sampledColors[i], sampledColors[j]) / 1.2);
+      return params.edgeProbability * (0.4 + similarity * 2);
+    });
+    return diagram;
+  }
+
   global.DG = global.DG || {};
-  Object.assign(global.DG, { generateDiagram, generateFromData });
+  Object.assign(global.DG, { generateDiagram, generateFromData, generateFromImage });
 })(window);

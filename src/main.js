@@ -39,12 +39,19 @@
   const params = loadParams();
   let currentDiagram = null;
   let inputData = loadInputData();
+  // Not persisted across reloads (unlike inputData) -- raw pixel data is far
+  // too large for localStorage, and IndexedDB felt like more machinery than
+  // a same-session "try a photo" feature warrants. `useImageData` itself
+  // still persists via params; regenerate() just falls back to whatever
+  // else is available if no image has been (re-)loaded yet this session.
+  let sourceImage = null;
   let p5Instance = null;
 
   const sketchContainer = document.getElementById('sketch-container');
   const tableContainer = document.getElementById('table-container');
   const statusEl = document.getElementById('status');
   const dataStatusEl = document.getElementById('data-status');
+  const imageStatusEl = document.getElementById('image-status');
 
   function setStatus(msg) {
     statusEl.textContent = msg;
@@ -55,9 +62,11 @@
   function regenerate() {
     try {
       currentDiagram =
-        params.useInputData && inputData
-          ? DG.generateFromData(inputData, params)
-          : DG.generateDiagram(params);
+        params.useImageData && sourceImage
+          ? DG.generateFromImage(sourceImage, params)
+          : params.useInputData && inputData
+            ? DG.generateFromData(inputData, params)
+            : DG.generateDiagram(params);
       viewNeedsReset = true;
       renderCurrent();
       saveParams();
@@ -557,6 +566,51 @@
     } catch (err) {
       setStatus(`Could not parse pasted data: ${err.message}`);
     }
+  });
+
+  // --- image data: drives generateFromImage() instead of pure random -------
+  const useImageDataCheckbox = document.getElementById('use-image-data');
+  useImageDataCheckbox.checked = params.useImageData;
+  if (params.useImageData) {
+    imageStatusEl.textContent = 'No image loaded this session yet -- import one below.';
+  }
+
+  useImageDataCheckbox.addEventListener('change', () => {
+    params.useImageData = useImageDataCheckbox.checked;
+    regenerate();
+  });
+
+  /** Reads an image file, downsamples it (sampling/analysis only needs a modest resolution), and stores its raw pixels as `sourceImage`. */
+  function loadImageFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 400;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        sourceImage = ctx.getImageData(0, 0, w, h);
+        imageStatusEl.textContent = `Loaded "${file.name}" (sampling at ${w}x${h}).`;
+        if (params.useImageData) regenerate();
+      };
+      img.onerror = () => setStatus(`Could not load "${file.name}" as an image.`);
+      img.src = reader.result;
+    };
+    reader.onerror = () => setStatus(`Could not read "${file.name}".`);
+    reader.readAsDataURL(file);
+  }
+
+  document.getElementById('import-image-file').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    loadImageFile(file);
+    e.target.value = '';
   });
 
   // --- library: save/reload full diagrams (JSON + thumbnail) via DG.library, in a grid overlay ---

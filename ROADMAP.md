@@ -16,4 +16,4 @@
 - [x] Edges should be able to connect to other edges, not just nodes.
 - [x] Enable recursion -- nodes & edges inside a node -- and parameterize how often this occurs.
 - [x] Library view of saved diagrams, shown in a grid, resumable for viewing or editing.
-- [ ] Generate a diagram from an input image -- guess at nodes, edges, sizes, shapes, and colors from it, e.g. by sampling random regions of the image for values.
+- [x] Generate a diagram from an input image -- guess at nodes, edges, sizes, shapes, and colors from it, e.g. by sampling random regions of the image for values.
