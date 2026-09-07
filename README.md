@@ -228,6 +228,21 @@ split/converge branches -- those are decorative randomization, and a
 diagram built from real data should only show relationships that are
 actually in that data.
 
+## Choosing a download folder
+
+By default "Export JSON", "Export PNG", and "Export JSON + PNG" go through
+the browser's normal download flow (its default downloads folder, or a
+save dialog if the browser is set to always ask). In a Chromium browser
+(Chrome/Edge) you can instead click "Choose folder..." in the sidebar's
+"Download location" panel to pick a folder once via the File System Access
+API; every export after that writes straight into it with no dialog. The
+choice is remembered (in IndexedDB) across reloads as long as the browser
+still grants permission for that folder without a fresh prompt; if it
+doesn't, the sidebar tells you to re-click "Choose folder..." to
+re-authorize it. "Use browser default" clears the choice. This isn't
+available in Firefox/Safari, which don't implement the API -- exports
+there always go through the normal download flow.
+
 ## Known simplifications (v0)
 
 - Edge routing is naive: straight/curved/orthogonal connect node

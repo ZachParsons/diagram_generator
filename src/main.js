@@ -205,6 +205,112 @@
     onExportBoth: exportBoth,
   });
 
+  // --- download location -----------------------------------------------
+  // The File System Access API (Chromium only) is the only way a web page
+  // can write straight to a chosen folder instead of the browser's default
+  // downloads location; the directory handle is IndexedDB-persisted (it
+  // isn't string-serializable, so localStorage can't hold it) and re-used
+  // silently across reloads as long as the browser still grants permission
+  // for it without a fresh prompt.
+  const IDB_NAME = 'diagram-generator';
+  const IDB_STORE = 'handles';
+  const DIR_HANDLE_KEY = 'downloadDir';
+  const supportsFsAccess = typeof window.showDirectoryPicker === 'function';
+  let downloadDirHandle = null;
+
+  function openIdb() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function idbGet(key) {
+    const db = await openIdb();
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function idbSet(key, value) {
+    const db = await openIdb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(value, key);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function idbDelete(key) {
+    const db = await openIdb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).delete(key);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  const downloadFolderStatusEl = document.getElementById('download-folder-status');
+  const chooseFolderBtn = document.getElementById('choose-download-folder');
+  const clearFolderBtn = document.getElementById('clear-download-folder');
+
+  function updateFolderStatus() {
+    if (!supportsFsAccess) {
+      downloadFolderStatusEl.textContent = 'Not supported in this browser -- using the browser default.';
+      chooseFolderBtn.disabled = true;
+      return;
+    }
+    downloadFolderStatusEl.textContent = downloadDirHandle ? `Saving exports to "${downloadDirHandle.name}".` : 'Using the browser default.';
+    clearFolderBtn.hidden = !downloadDirHandle;
+  }
+
+  (async function restoreDownloadDir() {
+    if (!supportsFsAccess) {
+      updateFolderStatus();
+      return;
+    }
+    try {
+      const handle = await idbGet(DIR_HANDLE_KEY);
+      if (handle && (await handle.queryPermission({ mode: 'readwrite' })) === 'granted') {
+        downloadDirHandle = handle;
+      } else if (handle) {
+        setStatus('Download folder needs re-authorization -- click "Choose folder..." to re-enable.');
+      }
+    } catch (err) {
+      // Ignore -- fall back to the browser default.
+    }
+    updateFolderStatus();
+  })();
+
+  chooseFolderBtn.addEventListener('click', async () => {
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      downloadDirHandle = handle;
+      await idbSet(DIR_HANDLE_KEY, handle);
+      setStatus(`Exports will save to "${handle.name}".`);
+    } catch (err) {
+      if (err.name !== 'AbortError') setStatus(`Could not set download folder: ${err.message}`);
+    }
+    updateFolderStatus();
+  });
+
+  clearFolderBtn.addEventListener('click', async () => {
+    downloadDirHandle = null;
+    try {
+      await idbDelete(DIR_HANDLE_KEY);
+    } catch (err) {
+      // Ignore.
+    }
+    setStatus('Reverted to the browser default download location.');
+    updateFolderStatus();
+  });
+
   // --- export --------------------------------------------------------------
   function downloadBlob(filename, blob) {
     const url = URL.createObjectURL(blob);
@@ -217,23 +323,44 @@
     URL.revokeObjectURL(url);
   }
 
-  function exportDiagramJSON() {
+  /** Writes into the chosen folder if one is set (falling back to a normal download on failure), else downloads normally. */
+  async function saveBlob(filename, blob) {
+    if (downloadDirHandle) {
+      try {
+        const fileHandle = await downloadDirHandle.getFileHandle(filename, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return;
+      } catch (err) {
+        setStatus(`Could not save to "${downloadDirHandle.name}" (${err.message}) -- used the browser default instead.`);
+      }
+    }
+    downloadBlob(filename, blob);
+  }
+
+  function canvasBlob() {
+    return new Promise((resolve) => p5Instance.canvas.toBlob(resolve, 'image/png'));
+  }
+
+  async function exportDiagramJSON() {
     if (!currentDiagram) return;
     const blob = new Blob([JSON.stringify(currentDiagram, null, 2)], { type: 'application/json' });
-    downloadBlob(`diagram-${currentDiagram.meta.seed}.json`, blob);
+    await saveBlob(`diagram-${currentDiagram.meta.seed}.json`, blob);
     setStatus('Exported diagram JSON.');
   }
 
-  function exportPNG() {
+  async function exportPNG() {
     if (!p5Instance) return;
-    p5Instance.saveCanvas(`diagram-${params.seed}`, 'png');
+    const blob = await canvasBlob();
+    await saveBlob(`diagram-${params.seed}.png`, blob);
     setStatus('Exported PNG.');
   }
 
-  function exportBoth() {
+  async function exportBoth() {
     if (!currentDiagram || !p5Instance) return;
-    exportDiagramJSON();
-    exportPNG();
+    await exportDiagramJSON();
+    await exportPNG();
     setStatus('Exported diagram JSON + PNG.');
   }
 
