@@ -70,7 +70,35 @@
   function renderCurrent() {
     if (!currentDiagram) return;
     if (p5Instance) p5Instance.redraw();
-    DG.renderDiagramTable(tableContainer, currentDiagram);
+    DG.renderDiagramTable(tableContainer, currentDiagram, { onNodeFieldChange, onEdgeFieldChange });
+  }
+
+  // --- table-panel editing ---------------------------------------------
+  // Edits are a live mutation on the current diagram (like dragging a node
+  // on the canvas) rather than a params change -- they take effect
+  // immediately and are in-memory only, resetting on the next Regenerate.
+  function onNodeFieldChange(nodeId, field, value) {
+    const node = currentDiagram && currentDiagram.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    if (field === 'w' || field === 'h') {
+      if (!(value > 0)) return; // reject NaN/zero/negative sizes
+    } else if (field === 'x' || field === 'y' || field === 'rotation') {
+      if (Number.isNaN(value)) return;
+    } else if (field === 'label' || field === 'group') {
+      value = value || null;
+    }
+    node[field] = value;
+    renderCurrent();
+  }
+
+  function onEdgeFieldChange(edgeId, field, value) {
+    const edge = currentDiagram && currentDiagram.edges.find((e) => e.id === edgeId);
+    if (!edge) return;
+    if (field.startsWith('width') || field.startsWith('opacity')) {
+      if (Number.isNaN(value) || value < 0) return;
+    }
+    edge[field] = value;
+    renderCurrent();
   }
 
   // --- p5 sketch (instance mode) ------------------------------------------

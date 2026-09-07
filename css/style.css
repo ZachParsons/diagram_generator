@@ -222,7 +222,8 @@ button:hover {
 
 .diagram-table {
   border-collapse: collapse;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   font-size: 12px;
 }
 
@@ -230,6 +231,7 @@ button:hover {
   border-bottom: 1px solid var(--border);
   padding: 4px 8px;
   text-align: left;
+  white-space: nowrap;
 }
 
 .diagram-table th {
@@ -244,4 +246,33 @@ button:hover {
   border-radius: 3px;
   vertical-align: middle;
   border: 1px solid rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.cell-input {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 2px 4px;
+}
+
+input.cell-input[type='number'] {
+  width: 5.5em;
+}
+
+input.cell-input[type='text'] {
+  width: 8em;
+}
+
+.color-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.color-cell .cell-input-color {
+  width: 12em;
 }

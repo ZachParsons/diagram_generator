@@ -39,6 +39,14 @@ canvas, toggled by the "Table" handle at the bottom of the main view, so
 you can have both visible at once. It stays up to date continuously, so
 expanding it never shows stale data.
 
+The table's non-structural fields are directly editable: position, size,
+rotation, label, group, and fill for nodes; path shape, texture, width,
+opacity, color, and arrows for edges (a node's generated point outline and
+an edge's node/point references stay read-only -- reposition/rebend those
+by dragging on the canvas instead). Edits commit on blur/Enter/change, not
+every keystroke, so a table rebuild never interrupts an in-progress edit;
+like canvas dragging, they're in-memory only and reset on Regenerate.
+
 ## Architecture
 
 ```

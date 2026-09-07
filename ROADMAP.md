@@ -6,7 +6,7 @@
 - [x] One-click button to download both the diagram data (JSON) and the rendered image (PNG).
 - [x] Settable download path for exports.
 - [x] Pan & zoom on the canvas view.
-- [ ] Edit nodes/edges by editing the values directly in the table panel.
+- [x] Edit nodes/edges by editing the values directly in the table panel.
 - [ ] Edges should be able to connect to other edges, not just nodes.
 - [ ] Arrow-line problem.
 - [x] Toggleable node names.
