@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Diagram Generator</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <h1>Diagram Generator</h1>
+
+      <div id="pane-container"></div>
+
+      <section class="panel">
+        <h2>Input data</h2>
+        <label class="checkbox-row">
+          <input type="checkbox" id="use-input-data" />
+          Use input data instead of pure random
+        </label>
+        <button id="load-sample-data">Load sample data</button>
+        <label class="file-row">
+          Import data JSON
+          <input type="file" id="import-data-file" accept="application/json" />
+        </label>
+        <textarea id="paste-data-textarea" rows="4" placeholder='{"nodes":[{"id":"a","connections":["b"]},{"id":"b","connections":[]}]}'></textarea>
+        <button id="apply-pasted-data">Use pasted data</button>
+        <div class="status" id="data-status"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Diagram file</h2>
+        <label class="file-row">
+          Import diagram JSON
+          <input type="file" id="import-diagram-file" accept="application/json" />
+        </label>
+        <p class="hint">Loads a diagram JSON directly into the viewers below, bypassing the generator entirely.</p>
+      </section>
+
+      <div class="status" id="status"></div>
+    </aside>
+
+    <main id="main">
+      <div id="view-toggle">
+        <button data-view="canvas" class="active">Canvas</button>
+        <button data-view="table">Table</button>
+      </div>
+      <div id="sketch-container"></div>
+      <div id="table-container" class="hidden"></div>
+    </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tweakpane@3.1.10/dist/tweakpane.min.js"></script>
+
+  <script src="src/rng.js"></script>
+  <script src="src/schema.js"></script>
+  <script src="src/layouts.js"></script>
+  <script src="src/generator.js"></script>
+  <script src="src/canvasRenderer.js"></script>
+  <script src="src/tableRenderer.js"></script>
+  <script src="src/controls.js"></script>
+  <script src="data/sample-input.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>
