@@ -141,6 +141,12 @@ in one of four textures:
 - **dotted**: a row of small circles instead of a ribbon, sized by the local taper width.
 - **striped**: a continuous ribbon that alternates between `color` and `color2` every so often, like a barber pole.
 
+Edge color comes from its own `edgeHueMin`/`edgeHueMax`/`edgeSaturationMin`/
+`edgeSaturationMax`/`edgeLightnessMin`/`edgeLightnessMax` params -- deliberately
+separate from the node color params, so edges get just as much random hue/
+saturation/lightness variety as nodes do without literally sharing a palette
+with them.
+
 An edge endpoint (`source`/`target`, and any `extraSources`/`extraTargets`)
 is either a node id, resolved to that node's center and pulled back to its
 boundary (+`sourceGap`/`targetGap`, which can be negative to overshoot into

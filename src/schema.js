@@ -102,6 +102,14 @@
       edgeStyle: 'curved',
       edgePatterns: { solid: true, dashed: true, dotted: true, striped: true },
       edgeArrowMode: 'end',
+      // Independent of the node color params, so edges are just as varied
+      // and colorful as nodes without sharing a literal palette with them.
+      edgeHueMin: 0,
+      edgeHueMax: 360,
+      edgeSaturationMin: 35,
+      edgeSaturationMax: 85,
+      edgeLightnessMin: 45,
+      edgeLightnessMax: 80,
       edgeWidthMin: 1,
       edgeWidthMax: 5,
       edgeTaper: true,

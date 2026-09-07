@@ -83,6 +83,12 @@
         options: { None: 'none', Start: 'start', End: 'end', Both: 'both', Random: 'random' },
       })
       .on('change', onChange);
+    edges.addInput(params, 'edgeHueMin', { label: 'Hue min', min: 0, max: 360, step: 1 }).on('change', onChange);
+    edges.addInput(params, 'edgeHueMax', { label: 'Hue max', min: 0, max: 360, step: 1 }).on('change', onChange);
+    edges.addInput(params, 'edgeSaturationMin', { label: 'Saturation min %', min: 0, max: 100, step: 1 }).on('change', onChange);
+    edges.addInput(params, 'edgeSaturationMax', { label: 'Saturation max %', min: 0, max: 100, step: 1 }).on('change', onChange);
+    edges.addInput(params, 'edgeLightnessMin', { label: 'Lightness min %', min: 0, max: 100, step: 1 }).on('change', onChange);
+    edges.addInput(params, 'edgeLightnessMax', { label: 'Lightness max %', min: 0, max: 100, step: 1 }).on('change', onChange);
     edges.addInput(params, 'edgeWidthMin', { label: 'Width min', min: 0.5, max: 20, step: 0.5 }).on('change', onChange);
     edges.addInput(params, 'edgeWidthMax', { label: 'Width max', min: 0.5, max: 20, step: 0.5 }).on('change', onChange);
     edges.addInput(params, 'edgeTaper', { label: 'Taper (differing ends)' }).on('change', onChange);

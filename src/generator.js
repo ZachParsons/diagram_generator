@@ -136,8 +136,19 @@
       widthEnd: params.edgeTaper ? tieredRange(rng, params.edgeWidthMin, params.edgeWidthMax, pickSizeTier(rng, params)) : widthStart,
       opacityStart,
       opacityEnd: params.edgeFade ? rng.range(params.edgeOpacityMin, params.edgeOpacityMax) : opacityStart,
-      color: hslString(rng.range(0, 360), 15, rng.range(55, 85)),
-      color2: hslString(rng.range(0, 360), 15, rng.range(55, 85)),
+      // Edges get their own independent hue/saturation/lightness ranges --
+      // not tied to the node color params -- so they're just as varied and
+      // colorful as nodes without literally sharing a palette with them.
+      color: hslString(
+        rng.range(params.edgeHueMin, params.edgeHueMax),
+        rng.range(params.edgeSaturationMin, params.edgeSaturationMax),
+        rng.range(params.edgeLightnessMin, params.edgeLightnessMax)
+      ),
+      color2: hslString(
+        rng.range(params.edgeHueMin, params.edgeHueMax),
+        rng.range(params.edgeSaturationMin, params.edgeSaturationMax),
+        rng.range(params.edgeLightnessMin, params.edgeLightnessMax)
+      ),
       arrowStart: arrowMode === 'start' || arrowMode === 'both',
       arrowEnd: arrowMode === 'end' || arrowMode === 'both',
       sourceGap: rng.range(-params.edgeEndOffsetJitter, params.edgeEndOffsetJitter),
